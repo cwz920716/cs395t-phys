@@ -5,6 +5,9 @@
 #include <Eigen/Sparse>
 #include <Eigen/StdVector>
 
+typedef Eigen::SparseMatrix<double> SpMat; // declares a column-major sparse matrix type of double
+typedef Eigen::Triplet<double> T;
+
 struct MouseClick
 {
     double x;
@@ -62,5 +65,12 @@ private:
     Eigen::MatrixXd renderC;
 
     void addParticle(double x, double y);
-    void addSaw(double x, double y);       
+    void addSaw(double x, double y);      
+
+    Eigen::VectorXd configVector(); 
+    Eigen::VectorXd configVelVector();
+    Eigen::VectorXd gravity();
+    Eigen::VectorXd gravityHeissan();
+    SpMat massMatrix();
+    SpMat massInvMatrix();
 };

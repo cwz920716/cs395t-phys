@@ -11,7 +11,7 @@ struct SimParameters
         NewtonTolerance = 1e-8;
 
         gravityEnabled = true;
-        gravityG = -9.8;
+        gravityG = -0.5; //TODO(wcui): recover this -9.8;
         springsEnabled = true;
         springStiffness = 100;
         maxSpringStrain = 0.2;

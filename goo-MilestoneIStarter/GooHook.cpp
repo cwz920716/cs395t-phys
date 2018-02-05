@@ -229,6 +229,39 @@ void GooHook::tick()
 bool GooHook::simulateOneStep()
 {
     // TODO: implement time integration
+
+    // explicit Euler for testing
+    int n = particles_.size();
+    VectorXd q_next(n * 2);
+    VectorXd v_next(n * 2);
+    VectorXd q = configVector();
+    VectorXd v = configVelVector();
+
+    VectorXd F(n * 2);
+    F.setZero();
+
+    if (params_.gravityEnabled) {
+        F += gravity();
+    }
+
+    // if (params_.integrator = SimParameters::TimeIntegrator::TI_EXPLICIT_EULER) {
+        q_next = q + params_.timeStep * v;
+        v_next = v + params_.timeStep * massInvMatrix() * F;
+    // }
+
+    // populate from q_next/v-next to per node pos/vel
+    for (int i = 0; i < n; i++) {
+        if (particles_[i].fixed)
+            continue;
+
+        int i1 = 2 * i, i2 = 2 * i + 1;
+        particles_[i].prevpos = particles_[i].pos;
+        particles_[i].pos[0] = q_next[i1];
+        particles_[i].pos[1] = q_next[i2];
+        particles_[i].vel[0] = v_next[i1];
+        particles_[i].vel[1] = v_next[i2];
+    }
+
     time_ += params_.timeStep;
     return false;
 }
@@ -244,9 +277,96 @@ void GooHook::addParticle(double x, double y)
     particles_.push_back(Particle(newpos, mass, params_.particleFixed, false));
 
     // TODO connect particles with springs
+    for (int i = 0; i < newid; i++) {
+        auto &p = particles_[i];
+        Vector2d diff = newpos - p.pos;
+        double dist = diff.norm();
+        if (dist <= params_.maxSpringDist) {
+            Spring *new_spring = new Spring(i, newid, mass + p.mass,
+                                            params_.dampingStiffness,
+                                            dist, false);
+            connectors_.push_back(new_spring);
+        }
+    }
+
+    // std::cout << "q = [\n" << configVector() << "];\n\n";
+
+    // std::cout << "M = [\n" << massMatrix() << "];\n\n";
 }
 
 void GooHook::addSaw(double x, double y)
 {
     saws_.push_back(Saw(Vector2d(x,y), params_.sawRadius));    
+}
+
+Eigen::VectorXd GooHook::configVector()
+{
+    VectorXd q(particles_.size() * 2);
+    for (int i = 0; i < particles_.size(); i++) {
+        q[i * 2] = particles_[i].pos[0];
+        q[i * 2 + 1] = particles_[i].pos[1];
+    }
+
+    return q;
+}
+
+Eigen::VectorXd GooHook::configVelVector()
+{
+    VectorXd q(particles_.size() * 2);
+    for (int i = 0; i < particles_.size(); i++) {
+        q[i * 2] = particles_[i].vel[0];
+        q[i * 2 + 1] = particles_[i].vel[1];
+    }
+
+    return q;
+}
+
+Eigen::VectorXd GooHook::gravity()
+{
+    VectorXd G(particles_.size() * 2);
+    for (int i = 0; i < particles_.size(); i++) {
+        G[i * 2] = 0;
+        G[i * 2 + 1] = particles_[i].mass * params_.gravityG;
+    }
+
+    return G;
+}
+
+Eigen::VectorXd GooHook::gravityHeissan()
+{
+    VectorXd dG(particles_.size() * 2);
+    dG.setZero();
+
+    return dG;
+}
+
+SpMat GooHook::massMatrix()
+{
+    int n = particles_.size();
+    SpMat M(n * 2, n * 2);
+    std::vector<T> mass_vec;
+    for (int i = 0; i < n; i++) {
+        int i1 = i * 2, i2 = i * 2 + 1;
+        mass_vec.push_back(T(i1, i1, particles_[i].mass));
+        mass_vec.push_back(T(i2, i2, particles_[i].mass));
+    }
+
+    M.setFromTriplets(mass_vec.begin(), mass_vec.end());
+    return M;
+}
+
+SpMat GooHook::massInvMatrix()
+{
+    int n = particles_.size();
+    SpMat M_inv(n * 2, n * 2);
+    std::vector<T> mass_inv_vec;
+    for (int i = 0; i < n; i++) {
+        int i1 = i * 2, i2 = i * 2 + 1;
+        double mass_inv = 1.0 / particles_[i].mass;
+        mass_inv_vec.push_back(T(i1, i1, mass_inv));
+        mass_inv_vec.push_back(T(i2, i2, mass_inv));
+    }
+
+    M_inv.setFromTriplets(mass_inv_vec.begin(), mass_inv_vec.end());
+    return M_inv;
 }
