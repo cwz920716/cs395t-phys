@@ -299,13 +299,16 @@ void GooHook::removeObjects()
         Vector2d pos = particles_[i].pos;
         for (auto saw : saws_) {
             Vector2d diff = pos -saw.pos;
-            if (diff.norm() > saw.radius) {
-                int new_id = live_p.size();
-                id_map[i] = new_id;
-                live_p.push_back(particles_[i]);
-            } else {
+            if (diff.norm() <= saw.radius) {
                 id_map[i] = -1;
+                break;
             } 
+        }
+
+        if (id_map[i] != -1) {
+            int new_id = live_p.size();
+            id_map[i] = new_id;
+            live_p.push_back(particles_[i]);
         }
     }
 
