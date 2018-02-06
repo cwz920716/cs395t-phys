@@ -70,7 +70,10 @@ private:
     Eigen::VectorXd configVector(); 
     Eigen::VectorXd configVelVector();
     Eigen::VectorXd gravity();
-    Eigen::VectorXd gravityHeissan();
+    Eigen::MatrixXd gravityHeissan();
+    Eigen::VectorXd springForce(Eigen::VectorXd q);
+    Eigen::MatrixXd selector(int i);
+
     SpMat massMatrix();
     SpMat massInvMatrix();
 };
