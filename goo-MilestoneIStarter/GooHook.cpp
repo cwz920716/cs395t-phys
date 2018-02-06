@@ -237,19 +237,24 @@ bool GooHook::simulateOneStep()
     VectorXd q = configVector();
     VectorXd v = configVelVector();
 
-    std::cout << "\n==iter begins==\n";
+    // std::cout << "\n==iter begins==\n";
 
     // std::cout << "G = [\n" << gravity() << "]\n";
-    std::cout << "SpringF = [\n" << springForce(q) << "]\n";
+    // std::cout << "SpringF = [\n" << springForce(q) << "]\n";
 
-    // std::cout << "F = [\n" << F << "]\n";;
+    // std::cout << "F = [\n" << F << "]\n";
+    // TODO(wcui): more integrators!
     if (params_.integrator == SimParameters::TimeIntegrator::TI_EXPLICIT_EULER) {
-        VectorXd F = gravity() + springForce(q);
+        VectorXd vv = (q - prevConfigVector()) / params_.timeStep;
+        VectorXd F = gravity() + springForce(q) + viscousDamping(vv);
+        // std::cout << "visc = [\n" << viscousDamping(vv) << "]\n";
         q_next = q + params_.timeStep * v;
         v_next = v + params_.timeStep * massInvMatrix() * F;
     } else if (params_.integrator == SimParameters::TimeIntegrator::TI_VELOCITY_VERLET) {
         q_next = q + params_.timeStep * v;
-        VectorXd F = gravity() + springForce(q_next);
+        VectorXd vv = (q_next - q) / params_.timeStep;
+        VectorXd F = gravity() + springForce(q_next) + viscousDamping(vv);
+        // std::cout << "visc = [\n" << viscousDamping(vv) << "]\n";
         v_next = v + params_.timeStep * massInvMatrix() * F;
     }
 
@@ -266,14 +271,67 @@ bool GooHook::simulateOneStep()
         particles_[i].vel[1] = v_next[i2];
     }
 
-    // Handle snapping and sawing
+    // TODO(wcui): Handle snapping and sawing
+    removeObjects();
 
     // std::cout << "q = [\n" << q << "];\n\n";
     // std::cout << "q' = [\n" << q_next << "];\n\n";
 
-    std::cout << "\n==iter ends==\n";
+    // std::cout << "\n==iter ends==\n";
     time_ += params_.timeStep;
     return false;
+}
+
+void GooHook::removeObjects()
+{
+    std::vector<Particle, Eigen::aligned_allocator<Particle> > live_p;
+    std::vector<Connector *> live_s;
+    std::map<int, int> id_map;
+
+    // VectorXd q = configVector();
+    for (int i = 0; i < particles_.size(); i++) {
+        // TODO(wcui): remove particles which are too far away
+        if (particles_[i].pos.norm() >= 1.42) {
+            id_map[i] = -1;
+            continue;
+        }
+
+        Vector2d pos = particles_[i].pos;
+        for (auto saw : saws_) {
+            Vector2d diff = pos -saw.pos;
+            if (diff.norm() > saw.radius) {
+                int new_id = live_p.size();
+                id_map[i] = new_id;
+                live_p.push_back(particles_[i]);
+            } else {
+                id_map[i] = -1;
+            } 
+        }
+    }
+
+    for (auto c : connectors_) {
+        auto s = reinterpret_cast<Spring *>(c);
+        if (s == nullptr) continue;
+
+        // if one of spring ends is dead, spring is dead
+        if (id_map[s->p1] == -1 || id_map[s->p2] == -1) {
+            continue;
+        }
+
+        // if spring is too long, remove it
+        Vector2d q1 = particles_[s->p1].pos;
+        Vector2d q2 = particles_[s->p2].pos;
+        Vector2d s_vec = q2 - q1;
+        double e = s_vec.norm() / s->restlen - 1;
+        // std::cout << "e=" << e << "\n";
+        if (e >= params_.maxSpringStrain) {
+            // std::cout << "remove me\n";
+            continue;
+        }
+
+        // if spring intercepts saw, remove it
+        
+    }
 }
 
 void GooHook::addParticle(double x, double y)
@@ -321,6 +379,17 @@ Eigen::VectorXd GooHook::configVector()
     return q;
 }
 
+Eigen::VectorXd GooHook::prevConfigVector()
+{
+    Eigen::VectorXd q(particles_.size() * 2);
+    for (int i = 0; i < particles_.size(); i++) {
+        q[i * 2] = particles_[i].prevpos[0];
+        q[i * 2 + 1] = particles_[i].prevpos[1];
+    }
+
+    return q;
+}
+
 Eigen::VectorXd GooHook::configVelVector()
 {
     Eigen::VectorXd q(particles_.size() * 2);
@@ -357,12 +426,13 @@ Eigen::MatrixXd GooHook::gravityHeissan()
     return dG;
 }
 
-Eigen::MatrixXd GooHook::selector(int i)
+SpMat GooHook::selector(int i)
 {
-    MatrixXd S(2, particles_.size() * 2);
-    S.setZero();
-    S(0, 2 * i) = 1;
-    S(1, 2 * i + 1) = 1;
+    SpMat S(2, particles_.size() * 2);
+    std::vector<T> vec;
+    vec.push_back(T(0, 2 * i, 1));
+    vec.push_back(T(1, 2 * i + 1, 1));
+    S.setFromTriplets(vec.begin(), vec.end());
     return S;
 }
 
@@ -386,8 +456,8 @@ Eigen::VectorXd GooHook::springForce(Eigen::VectorXd q)
         auto s = reinterpret_cast<Spring *>(c);
         if (s == nullptr) continue;
 
-        Eigen::MatrixXd S1 = selector(s->p1);
-        Eigen::MatrixXd S2 = selector(s->p2);
+        SpMat S1 = selector(s->p1);
+        SpMat S2 = selector(s->p2);
         Eigen::Vector2d q1 = S1 * q;
         Eigen::Vector2d q2 = S2 * q;
         Eigen::Vector2d diff = q1 - q2;
@@ -403,6 +473,46 @@ Eigen::VectorXd GooHook::springForce(Eigen::VectorXd q)
     }
 
     return F;
+}
+
+
+Eigen::VectorXd GooHook::viscousDamping(Eigen::VectorXd v)
+{
+    Eigen::VectorXd F(particles_.size() * 2);
+    F.setZero();
+    if (!params_.dampingEnabled) {
+        return F;
+    }
+
+    for (auto c : connectors_) {
+        auto s = reinterpret_cast<Spring *>(c);
+        if (s == nullptr) continue;
+
+        VectorXd f(particles_.size() * 2);
+        f.setZero();
+
+        int p1x = s->p1 * 2;
+        int p1y = s->p1 * 2 + 1;
+        int p2x = s->p2 * 2;
+        int p2y = s->p2 * 2 + 1;
+
+        double kDamp = params_.dampingStiffness;
+        f(p1x) = kDamp * (v(p2x) - v(p1x));
+        f(p1y) = kDamp * (v(p2y) - v(p1y));
+        f(p2x) = kDamp * (v(p1x) - v(p2x));
+        f(p2y) = kDamp * (v(p1y) - v(p2y));
+
+        F += f;
+    }
+
+    return F;
+}
+
+Eigen::VectorXd GooHook::viscousDampingHeissan(Eigen::VectorXd v)
+{
+    Eigen::MatrixXd dF(particles_.size() * 2, particles_.size() * 2);
+    // TODO(wcui): compute dF for all springs
+    return dF;
 }
 
 SpMat GooHook::massMatrix()

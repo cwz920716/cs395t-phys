@@ -1,6 +1,7 @@
 #include "PhysicsHook.h"
 #include "SceneObjects.h"
 #include <deque>
+#include <map>
 #include "SimParameters.h"
 #include <Eigen/Sparse>
 #include <Eigen/StdVector>
@@ -67,12 +68,18 @@ private:
     void addParticle(double x, double y);
     void addSaw(double x, double y);      
 
+    void removeObjects();
+
     Eigen::VectorXd configVector(); 
+    Eigen::VectorXd prevConfigVector(); 
     Eigen::VectorXd configVelVector();
     Eigen::VectorXd gravity();
     Eigen::MatrixXd gravityHeissan();
     Eigen::VectorXd springForce(Eigen::VectorXd q);
-    Eigen::MatrixXd selector(int i);
+    Eigen::VectorXd springForceHeissan(Eigen::VectorXd q);
+    Eigen::VectorXd viscousDamping(Eigen::VectorXd v);
+    Eigen::VectorXd viscousDampingHeissan(Eigen::VectorXd v);
+    SpMat selector(int i);
 
     SpMat massMatrix();
     SpMat massInvMatrix();
