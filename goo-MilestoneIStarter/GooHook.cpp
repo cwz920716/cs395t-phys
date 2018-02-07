@@ -236,6 +236,7 @@ bool GooHook::simulateOneStep()
     VectorXd v_next(n * 2);
     VectorXd q = configVector();
     VectorXd v = configVelVector();
+    VectorXd q_prev = prevConfigVector();
 
     // std::cout << "\n==iter begins==\n";
 
@@ -245,17 +246,19 @@ bool GooHook::simulateOneStep()
     // std::cout << "F = [\n" << F << "]\n";
     // TODO(wcui): more integrators!
     if (params_.integrator == SimParameters::TimeIntegrator::TI_EXPLICIT_EULER) {
-        VectorXd vv = (q - prevConfigVector()) / params_.timeStep;
         VectorXd F = gravity() + springForce(q) +
-                     viscousDamping(vv) + floorForce(q, v);
+                     viscousDamping(q, q_prev, params_.timeStep) +
+                     floorForce(q, q_prev, params_.timeStep);
         // std::cout << "visc = [\n" << viscousDamping(vv) << "]\n";
+        // std::cout << "visc = [\n" << viscousDamping(q, q_prev, params_.timeStep) << "]\n";
+        std::cout << "H = [\n" << floorForceHeissan(q, q_prev, params_.timeStep) << "]\n";
         q_next = q + params_.timeStep * v;
         v_next = v + params_.timeStep * massInvMatrix() * F;
     } else if (params_.integrator == SimParameters::TimeIntegrator::TI_VELOCITY_VERLET) {
         q_next = q + params_.timeStep * v;
-        VectorXd vv = (q_next - q) / params_.timeStep;
         VectorXd F = gravity() + springForce(q_next) +
-                     viscousDamping(vv) + floorForce(q, v);
+                     viscousDamping(q_next, q, params_.timeStep) +
+                     floorForce(q_next, q, params_.timeStep);
         // std::cout << "visc = [\n" << viscousDamping(vv) << "]\n";
         v_next = v + params_.timeStep * massInvMatrix() * F;
     }
@@ -441,7 +444,7 @@ SpMat GooHook::selector(int i)
     return S;
 }
 
-Eigen::VectorXd GooHook::springForceHeissan(Eigen::VectorXd q)
+Eigen::MatrixXd GooHook::springForceHeissan(Eigen::VectorXd q)
 {
     Eigen::MatrixXd dF(particles_.size() * 2, particles_.size() * 2);
     // TODO(wcui): compute dF for all springs
@@ -481,8 +484,10 @@ Eigen::VectorXd GooHook::springForce(Eigen::VectorXd q)
 }
 
 
-Eigen::VectorXd GooHook::viscousDamping(Eigen::VectorXd v)
+Eigen::VectorXd GooHook::viscousDamping(Eigen::VectorXd q,
+                                        Eigen::VectorXd q_prev, double h)
 {
+    VectorXd v = (q - q_prev) / h;
     Eigen::VectorXd F(particles_.size() * 2);
     F.setZero();
     if (!params_.dampingEnabled) {
@@ -493,7 +498,7 @@ Eigen::VectorXd GooHook::viscousDamping(Eigen::VectorXd v)
         auto s = reinterpret_cast<Spring *>(c);
         if (s == nullptr) continue;
 
-        VectorXd f(particles_.size() * 2);
+        Eigen::VectorXd f(particles_.size() * 2);
         f.setZero();
 
         int p1x = s->p1 * 2;
@@ -501,7 +506,7 @@ Eigen::VectorXd GooHook::viscousDamping(Eigen::VectorXd v)
         int p2x = s->p2 * 2;
         int p2y = s->p2 * 2 + 1;
 
-        double kDamp = params_.dampingStiffness;
+        double kDamp = s->stiffness;
         f(p1x) = kDamp * (v(p2x) - v(p1x));
         f(p1y) = kDamp * (v(p2y) - v(p1y));
         f(p2x) = kDamp * (v(p1x) - v(p2x));
@@ -513,8 +518,39 @@ Eigen::VectorXd GooHook::viscousDamping(Eigen::VectorXd v)
     return F;
 }
 
-Eigen::VectorXd GooHook::floorForce(Eigen::VectorXd q, Eigen::VectorXd v)
+static Eigen::MatrixXd fullSelector(int n, int i, int o)
 {
+    Eigen::MatrixXd S(2 * n, 2 * n);
+    S.setZero();
+    S(2 * o, 2 * i) = 1;
+    S(2 * o + 1, 2 * i + 1) = 1;
+    return S;
+}
+
+Eigen::MatrixXd GooHook::viscousDampingHeissan(Eigen::VectorXd q,
+                                               Eigen::VectorXd q_prev, double h)
+{
+    int n = particles_.size();
+    Eigen::MatrixXd dF(n * 2, n * 2);
+    dF.setZero();
+
+    for (auto c : connectors_) {
+        auto s = reinterpret_cast<Spring *>(c);
+        if (s == nullptr) continue;
+
+        double k = s->stiffness / h;
+
+        dF += k * (fullSelector(n, s->p2, s->p1) - fullSelector(n, s->p1, s->p1));
+        dF += k * (fullSelector(n, s->p1, s->p2) - fullSelector(n, s->p2, s->p2));
+    }
+
+    return dF;
+}
+
+Eigen::VectorXd GooHook::floorForce(Eigen::VectorXd q,
+                                    Eigen::VectorXd q_prev, double h)
+{
+    VectorXd v = (q - q_prev) / h;
     Eigen::VectorXd F(particles_.size() * 2);
     if (!params_.floorEnabled) {
         F.setZero();
@@ -525,31 +561,31 @@ Eigen::VectorXd GooHook::floorForce(Eigen::VectorXd q, Eigen::VectorXd v)
     for (int i = 0; i < particles_.size(); i++) {
         F[i * 2] = 0;
         if (q[i * 2 + 1] < -0.5) {
-            F[i * 2 + 1] = -5 * particles_[i].mass * params_.gravityG;
+            F[i * 2 + 1] = -floorImpulse * particles_[i].mass * params_.gravityG;
         } else {
             F[i * 2 + 1] = 0;
         }
     }
 
     // non-conservative part, the drag force
-    double kDrag = -0.4;
+    double kDrag = -1.0 * floorDrag;
     F += kDrag * massMatrix() * v;
 
     return F;
 }
 
-Eigen::MatrixXd GooHook::floorForceHeissan(Eigen::VectorXd q, Eigen::VectorXd v)
+Eigen::MatrixXd GooHook::floorForceHeissan(Eigen::VectorXd q,
+                                           Eigen::VectorXd q_prev, double h)
 {
-    Eigen::MatrixXd dF(particles_.size() * 2, particles_.size() * 2);
+    int n = particles_.size();
+    Eigen::MatrixXd dF(n * 2, n * 2);
+    Eigen::MatrixXd I(n * 2, n * 2);
     dF.setZero();
+    I.setIdentity();
 
-    return dF;
-}
+    double k = -floorDrag / h;
+    dF += k * I;
 
-Eigen::VectorXd GooHook::viscousDampingHeissan(Eigen::VectorXd v)
-{
-    Eigen::MatrixXd dF(particles_.size() * 2, particles_.size() * 2);
-    // TODO(wcui): compute dF for all springs
     return dF;
 }
 

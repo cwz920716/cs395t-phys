@@ -76,13 +76,19 @@ private:
     Eigen::VectorXd gravity();
     Eigen::MatrixXd gravityHeissan();
     Eigen::VectorXd springForce(Eigen::VectorXd q);
-    Eigen::VectorXd springForceHeissan(Eigen::VectorXd q);
-    Eigen::VectorXd viscousDamping(Eigen::VectorXd v);
-    Eigen::VectorXd viscousDampingHeissan(Eigen::VectorXd v);
+    Eigen::MatrixXd springForceHeissan(Eigen::VectorXd q);
+    Eigen::VectorXd viscousDamping(Eigen::VectorXd q,
+                                   Eigen::VectorXd q_prev, double h);
+    Eigen::MatrixXd viscousDampingHeissan(Eigen::VectorXd q,
+                                          Eigen::VectorXd q_prev, double h);
     // V = Kmg(y + 0.5) if y < -0.5
     // V = 0 if y >= -0.5
-    Eigen::VectorXd floorForce(Eigen::VectorXd q, Eigen::VectorXd v);
-    Eigen::MatrixXd floorForceHeissan(Eigen::VectorXd q, Eigen::VectorXd v);
+    constexpr static double floorImpulse = 5;
+    constexpr static double floorDrag = 0.4;
+    Eigen::VectorXd floorForce(Eigen::VectorXd q,
+                               Eigen::VectorXd q_prev, double h);
+    Eigen::MatrixXd floorForceHeissan(Eigen::VectorXd q,
+                                      Eigen::VectorXd q_prev, double h);
     SpMat selector(int i);
 
     SpMat massMatrix();
