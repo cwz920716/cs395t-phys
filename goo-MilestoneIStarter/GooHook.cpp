@@ -246,14 +246,16 @@ bool GooHook::simulateOneStep()
     // TODO(wcui): more integrators!
     if (params_.integrator == SimParameters::TimeIntegrator::TI_EXPLICIT_EULER) {
         VectorXd vv = (q - prevConfigVector()) / params_.timeStep;
-        VectorXd F = gravity() + springForce(q) + viscousDamping(vv);
+        VectorXd F = gravity() + springForce(q) +
+                     viscousDamping(vv) + floorForce(q, v);
         // std::cout << "visc = [\n" << viscousDamping(vv) << "]\n";
         q_next = q + params_.timeStep * v;
         v_next = v + params_.timeStep * massInvMatrix() * F;
     } else if (params_.integrator == SimParameters::TimeIntegrator::TI_VELOCITY_VERLET) {
         q_next = q + params_.timeStep * v;
         VectorXd vv = (q_next - q) / params_.timeStep;
-        VectorXd F = gravity() + springForce(q_next) + viscousDamping(vv);
+        VectorXd F = gravity() + springForce(q_next) +
+                     viscousDamping(vv) + floorForce(q, v);
         // std::cout << "visc = [\n" << viscousDamping(vv) << "]\n";
         v_next = v + params_.timeStep * massInvMatrix() * F;
     }
@@ -509,6 +511,39 @@ Eigen::VectorXd GooHook::viscousDamping(Eigen::VectorXd v)
     }
 
     return F;
+}
+
+Eigen::VectorXd GooHook::floorForce(Eigen::VectorXd q, Eigen::VectorXd v)
+{
+    Eigen::VectorXd F(particles_.size() * 2);
+    if (!params_.floorEnabled) {
+        F.setZero();
+        return F;
+    }
+
+    // potential part
+    for (int i = 0; i < particles_.size(); i++) {
+        F[i * 2] = 0;
+        if (q[i * 2 + 1] < -0.5) {
+            F[i * 2 + 1] = -5 * particles_[i].mass * params_.gravityG;
+        } else {
+            F[i * 2 + 1] = 0;
+        }
+    }
+
+    // non-conservative part, the drag force
+    double kDrag = -0.4;
+    F += kDrag * massMatrix() * v;
+
+    return F;
+}
+
+Eigen::MatrixXd GooHook::floorForceHeissan(Eigen::VectorXd q, Eigen::VectorXd v)
+{
+    Eigen::MatrixXd dF(particles_.size() * 2, particles_.size() * 2);
+    dF.setZero();
+
+    return dF;
 }
 
 Eigen::VectorXd GooHook::viscousDampingHeissan(Eigen::VectorXd v)

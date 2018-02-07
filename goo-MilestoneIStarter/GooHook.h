@@ -79,6 +79,10 @@ private:
     Eigen::VectorXd springForceHeissan(Eigen::VectorXd q);
     Eigen::VectorXd viscousDamping(Eigen::VectorXd v);
     Eigen::VectorXd viscousDampingHeissan(Eigen::VectorXd v);
+    // V = Kmg(y + 0.5) if y < -0.5
+    // V = 0 if y >= -0.5
+    Eigen::VectorXd floorForce(Eigen::VectorXd q, Eigen::VectorXd v);
+    Eigen::MatrixXd floorForceHeissan(Eigen::VectorXd q, Eigen::VectorXd v);
     SpMat selector(int i);
 
     SpMat massMatrix();
