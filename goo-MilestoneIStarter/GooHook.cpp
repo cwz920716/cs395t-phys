@@ -239,7 +239,7 @@ bool GooHook::simulateOneStep()
     VectorXd q_prev = prevConfigVector();
 
     // std::cout << "\n==iter begins==\n";
-    if (n == 0) return true;
+    if (n == 0) return false;
 
     // std::cout << "G = [\n" << gravity() << "]\n";
     // std::cout << "SpringF = [\n" << springForce(q) << "]\n";
