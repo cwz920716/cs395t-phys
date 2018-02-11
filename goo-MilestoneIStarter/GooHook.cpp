@@ -281,7 +281,15 @@ bool GooHook::simulateOneStep()
                      floorForceHeissan(q0, q, h);
             MatrixXd df = I - h * h * massInvMatrix() * dF_q0;
             // std::cout << "df = [\n" << df << "]\n";
-            VectorXd dq = df.colPivHouseholderQr().solve(-residual);
+            SpMat dfs = df.sparseView();
+            Eigen::SparseQR<SpMat, COLAMDOrdering<int>> solver;
+            solver.compute(dfs);
+            if(solver.info()!=Success) {
+              std::cout << "decomposition failed.\n";
+              return false;
+            }
+
+            VectorXd dq = solver.solve(-residual);
             // std::cout << "dq = [\n" << dq << "]\n";
             q0 = q0 + dq;
             // std::cout << "q0 = [\n" << q0 << "]\n";
@@ -299,7 +307,7 @@ bool GooHook::simulateOneStep()
             }
         }
 
-        std::cout << "+++ " << nIters << " iter +++\n\n\n";
+        // std::cout << "+++ " << nIters << " iter +++\n\n\n";
         q_next = q0;
         v_next = v + h * massInvMatrix() * F_q0;
     } else {
@@ -351,7 +359,7 @@ bool GooHook::simulateOneStep()
             }
         }
 
-        std::cout << "+++ " << nIters << " iter +++\n\n\n";
+        // std::cout << "+++ " << nIters << " iter +++\n\n\n";
         q_next = q0;
         v_next = v + h * massInvMatrix() * F_q_half;
     }
@@ -423,7 +431,7 @@ void GooHook::removeObjects()
     for (int i = 0; i < particles_.size(); i++) {
         // TODO(wcui): remove particles which are too far away
         if (particles_[i].pos.norm() >= 1.42) {
-            std::cout << "p left screen\n";
+            // std::cout << "p left screen\n";
             id_map[i] = -1;
             continue;
         }
@@ -432,7 +440,7 @@ void GooHook::removeObjects()
         for (auto saw : saws_) {
             Vector2d diff = pos -saw.pos;
             if (diff.norm() <= saw.radius) {
-                std::cout << "particle sawed\n";
+                // std::cout << "particle sawed\n";
                 id_map[i] = -1;
                 break;
             } 
@@ -451,7 +459,7 @@ void GooHook::removeObjects()
 
         // if one of spring ends is dead, spring is dead
         if (id_map[s->p1] == -1 || id_map[s->p2] == -1) {
-            std::cout << "endpoint dead\n";
+            // std::cout << "endpoint dead\n";
             dead_s.push_back(s);
             continue;
         }
@@ -465,7 +473,7 @@ void GooHook::removeObjects()
         double e = s_vec.norm() / s->restlen - 1;
         // std::cout << "e=" << e << "\n";
         if (s->canSnap && e >= params_.maxSpringStrain) {
-            std::cout << "snapped\n";
+            // std::cout << "snapped\n";
             dead_s.push_back(s);
             continue;
         }
@@ -475,7 +483,7 @@ void GooHook::removeObjects()
         for (auto saw : saws_) {
             double dist = shortestP2S(saw.pos, q1, q2);
             if (dist <= saw.radius) {
-                std::cout << "spring sawed\n";
+                // std::cout << "spring sawed\n";
                 hit_by_saw = true;
                 dead_s.push_back(s);
                 break;
@@ -512,15 +520,15 @@ void GooHook::addParticle(double x, double y)
         Vector2d diff = newpos - p.pos;
         double dist = diff.norm();
         if (dist <= params_.maxSpringDist) {
-            std::cout << "L=" << dist << "\n";
+            // std::cout << "L=" << dist << "\n";
             Spring *new_spring = new Spring(i, newid, mass + p.mass,
                                             params_.springStiffness,
-                                            dist, false);
+                                            dist, true);
             connectors_.push_back(new_spring);
         }
     }
 
-    std::cout << "q = [\n" << configVector() << "];\n\n";
+    // std::cout << "q = [\n" << configVector() << "];\n\n";
 
     // std::cout << "M = [\n" << massMatrix() << "];\n\n";
 }
