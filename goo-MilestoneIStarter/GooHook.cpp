@@ -239,6 +239,7 @@ bool GooHook::simulateOneStep()
     VectorXd q_prev = prevConfigVector();
 
     // std::cout << "\n==iter begins==\n";
+    if (n == 0) return true;
 
     // std::cout << "G = [\n" << gravity() << "]\n";
     // std::cout << "SpringF = [\n" << springForce(q) << "]\n";
@@ -249,9 +250,9 @@ bool GooHook::simulateOneStep()
         VectorXd F = gravity() + springForce(q) +
                      viscousDamping(q, q_prev, params_.timeStep) +
                      floorForce(q, q_prev, params_.timeStep);
-        // std::cout << "visc = [\n" << viscousDamping(vv) << "]\n";
         // std::cout << "visc = [\n" << viscousDamping(q, q_prev, params_.timeStep) << "]\n";
-        // std::cout << "H = [\n" << floorForceHeissan(q, q_prev, params_.timeStep) << "]\n";
+        // std::cout << "visc = [\n" << viscousDamping(q, q_prev, params_.timeStep) << "]\n";
+        // std::cout << "H = [\n" << springForceHeissan(q) << "]\n";
         q_next = q + params_.timeStep * v;
         v_next = v + params_.timeStep * massInvMatrix() * F;
     } else if (params_.integrator == SimParameters::TimeIntegrator::TI_VELOCITY_VERLET) {
@@ -261,6 +262,98 @@ bool GooHook::simulateOneStep()
                      floorForce(q_next, q, params_.timeStep);
         // std::cout << "visc = [\n" << viscousDamping(vv) << "]\n";
         v_next = v + params_.timeStep * massInvMatrix() * F;
+    } else if (params_.integrator == SimParameters::TimeIntegrator::TI_IMPLICIT_EULER) {
+        double h = params_.timeStep;
+        VectorXd q0 = q;
+        VectorXd F_q0 = gravity() + springForce(q0) +
+                     viscousDamping(q0, q, h) +
+                     floorForce(q0, q, h);
+        VectorXd residual = q0 - q - h * v - h * h * massInvMatrix() * F_q0;
+        // std::cout << "r = [\n" << residual << "]\n";
+        // std::cout << "|r| = [\n" << residual.norm() << "]\n";
+        int nIters = 0;
+        MatrixXd I(n * 2, n * 2);
+        I.setIdentity();
+        // std::cout << "q0 = [\n" << q0 << "]\n";
+        while (residual.norm() > params_.NewtonTolerance) {
+            MatrixXd dF_q0 = gravityHeissan() + springForceHeissan(q0) +
+                     viscousDampingHeissan(q0, q, h) +
+                     floorForceHeissan(q0, q, h);
+            MatrixXd df = I - h * h * massInvMatrix() * dF_q0;
+            // std::cout << "df = [\n" << df << "]\n";
+            VectorXd dq = df.colPivHouseholderQr().solve(-residual);
+            // std::cout << "dq = [\n" << dq << "]\n";
+            q0 = q0 + dq;
+            // std::cout << "q0 = [\n" << q0 << "]\n";
+            F_q0 = gravity() + springForce(q0) +
+                     viscousDamping(q0, q, h) +
+                     floorForce(q0, q, h);
+            residual = q0 - q - h * v - h * h * massInvMatrix() * F_q0;
+            // std::cout << "r = [\n" << residual << "]\n";
+            // std::cout << "|r| = [\n" << residual.norm() << "]\n";
+
+            nIters++;
+            // std::cout << "+++ " << nIters << " iter +++\n\n\n";
+            if (nIters >= params_.NewtonMaxIters) {
+                break;
+            }
+        }
+
+        std::cout << "+++ " << nIters << " iter +++\n\n\n";
+        q_next = q0;
+        v_next = v + h * massInvMatrix() * F_q0;
+    } else {
+        double h = params_.timeStep;
+        VectorXd q0 = q;
+        VectorXd q_half = (q0 + q) / 2;
+        VectorXd q_past = (q + q_prev) / 2;
+        VectorXd F_q_half = gravity() + springForce(q_half) +
+                            viscousDamping(q_half, q_past, h) +
+                            floorForce(q_half, q_past, h);
+        VectorXd residual = q0 - q - h * v - h * h / 2 * massInvMatrix() * F_q_half;
+        // std::cout << "r = [\n" << residual << "]\n";
+        // std::cout << "|r| = [\n" << residual.norm() << "]\n";
+        int nIters = 0;
+        MatrixXd I(n * 2, n * 2);
+        I.setIdentity();
+        // std::cout << "q0 = [\n" << q0 << "]\n";
+        while (residual.norm() > params_.NewtonTolerance) {
+            // std::cout << "r = [\n" << residual << "]\n";
+            // std::cout << "|r| = [\n" << residual.norm() << "]\n";
+            MatrixXd dF_q_half = gravityHeissan() + springForceHeissan(q_half) / 2 +
+                     viscousDampingHeissan(q_half, q_past, h) / 2 +
+                     floorForceHeissan(q_half, q_past, h) / 2;
+            MatrixXd df = I - h * h / 2 * massInvMatrix() * dF_q_half;
+            // std::cout << "df = [\n" << df << "]\n";
+            SpMat dfs = df.sparseView();
+            Eigen::SparseQR<SpMat, COLAMDOrdering<int>> solver;
+            solver.compute(dfs);
+            if(solver.info()!=Success) {
+              std::cout << "decomposition failed.\n";
+              return false;
+            }
+
+            VectorXd dq = solver.solve(-residual);
+            // std::cout << "dq = [\n" << dq << "]\n";
+            q0 = q0 + dq;
+            q_half = (q0 + q) / 2;
+            F_q_half = gravity() + springForce(q_half) +
+                                viscousDamping(q_half, q_past, h) +
+                                floorForce(q_half, q_past, h);
+            residual = q0 - q - h * v - h * h / 2 * massInvMatrix() * F_q_half;
+            // std::cout << "r = [\n" << residual << "]\n";
+            // std::cout << "|r| = [\n" << residual.norm() << "]\n";
+
+            nIters++;
+            // std::cout << "+++ " << nIters << " iter +++\n\n\n";
+            if (nIters >= params_.NewtonMaxIters) {
+                break;
+            }
+        }
+
+        std::cout << "+++ " << nIters << " iter +++\n\n\n";
+        q_next = q0;
+        v_next = v + h * massInvMatrix() * F_q_half;
     }
 
     // populate from q_next/v-next to per node pos/vel
@@ -307,8 +400,8 @@ static double shortestP2S(Vector2d p, Vector2d q1, Vector2d q2)
     }
 
     double t0 = (p - q1).dot(ray) / ray.dot(ray);
-    std::cout << "p=" << p << ", q1=" << q1 << ", q2=" << q2 << "\n";
-    std::cout << "t0=" << t0 << "\n";
+    // std::cout << "p=" << p << ", q1=" << q1 << ", q2=" << q2 << "\n";
+    // std::cout << "t0=" << t0 << "\n";
     if (t0 <= 0) {
         return (p - q1).norm();
     } else if (t0 >= 1) {
@@ -422,7 +515,7 @@ void GooHook::addParticle(double x, double y)
             std::cout << "L=" << dist << "\n";
             Spring *new_spring = new Spring(i, newid, mass + p.mass,
                                             params_.springStiffness,
-                                            dist, true);
+                                            dist, false);
             connectors_.push_back(new_spring);
         }
     }
@@ -480,7 +573,12 @@ Eigen::VectorXd GooHook::gravity()
 
     for (int i = 0; i < particles_.size(); i++) {
         G[i * 2] = 0;
-        G[i * 2 + 1] = particles_[i].mass * params_.gravityG;
+        double mass = particles_[i].mass;
+        if (particles_[i].fixed) {
+            mass = 0.0;
+        }
+
+        G[i * 2 + 1] = mass * params_.gravityG;
         // std::cout << particles_[i].mass * params_.gravityG;
     }
 
@@ -505,10 +603,52 @@ SpMat GooHook::selector(int i)
     return S;
 }
 
+static Eigen::MatrixXd fullSelector(int n, int i, int o)
+{
+    Eigen::MatrixXd S(2 * n, 2 * n);
+    S.setZero();
+    S(2 * o, 2 * i) = 1;
+    S(2 * o + 1, 2 * i + 1) = 1;
+    return S;
+}
+
 Eigen::MatrixXd GooHook::springForceHeissan(Eigen::VectorXd q)
 {
     Eigen::MatrixXd dF(particles_.size() * 2, particles_.size() * 2);
+    dF.setZero();
+    if (!params_.springsEnabled) {
+        return dF;
+    }
+
     // TODO(wcui): compute dF for all springs
+    for (auto c : connectors_) {
+        auto s = reinterpret_cast<Spring *>(c);
+        if (s == nullptr) continue;
+
+        double k = s->stiffness / s->restlen;
+        SpMat S1 = selector(s->p1);
+        SpMat S2 = selector(s->p2);
+        Eigen::Vector2d q1 = S1 * q;
+        Eigen::Vector2d q2 = S2 * q;
+        Eigen::Vector2d g = q1 - q2;
+        if (g.norm() <= 1.0e-9) continue;
+
+        Eigen::Vector2d h = g / g.norm();
+        double stretch = g.norm() - s->restlen;
+        // std::cout << "h = [\n" << h << " ]\n";
+        Eigen::MatrixXd ds = g.transpose() * (S1 - S2) / g.norm();
+        // std::cout << "ds = [\n" << ds << " ]\n";
+        Eigen::MatrixXd I(2, 2);
+        I.setIdentity();
+        double gn3 = g.norm() * g.norm() * g.norm();
+        Eigen::MatrixXd dh = (I / g.norm() - g * g.transpose() / gn3) * (S1 - S2);
+        // std::cout << "dh = [\n" << dh << " ]\n";
+        Eigen::MatrixXd df = k * (S2.transpose() - S1.transpose()) *
+                             (h * ds + stretch * dh);
+        // std::cout << "df = [\n" << df << " ]\n";
+
+        dF += df;
+    }
     return dF;
 }
 
@@ -544,10 +684,10 @@ Eigen::VectorXd GooHook::springForce(Eigen::VectorXd q)
     return F;
 }
 
-
 Eigen::VectorXd GooHook::viscousDamping(Eigen::VectorXd q,
                                         Eigen::VectorXd q_prev, double h)
 {
+    int n = particles_.size();
     VectorXd v = (q - q_prev) / h;
     Eigen::VectorXd F(particles_.size() * 2);
     F.setZero();
@@ -559,6 +699,8 @@ Eigen::VectorXd GooHook::viscousDamping(Eigen::VectorXd q,
         auto s = reinterpret_cast<Spring *>(c);
         if (s == nullptr) continue;
 
+        double kDamp = params_.dampingStiffness;
+/*
         Eigen::VectorXd f(particles_.size() * 2);
         f.setZero();
 
@@ -567,25 +709,17 @@ Eigen::VectorXd GooHook::viscousDamping(Eigen::VectorXd q,
         int p2x = s->p2 * 2;
         int p2y = s->p2 * 2 + 1;
 
-        double kDamp = params_.dampingStiffness;
         f(p1x) = kDamp * (v(p2x) - v(p1x));
         f(p1y) = kDamp * (v(p2y) - v(p1y));
         f(p2x) = kDamp * (v(p1x) - v(p2x));
         f(p2y) = kDamp * (v(p1y) - v(p2y));
+*/
 
-        F += f;
+        F += kDamp * (fullSelector(n, s->p2, s->p1) - fullSelector(n, s->p1, s->p1)) * v;
+        F += kDamp * (fullSelector(n, s->p1, s->p2) - fullSelector(n, s->p2, s->p2)) * v;
     }
 
     return F;
-}
-
-static Eigen::MatrixXd fullSelector(int n, int i, int o)
-{
-    Eigen::MatrixXd S(2 * n, 2 * n);
-    S.setZero();
-    S(2 * o, 2 * i) = 1;
-    S(2 * o + 1, 2 * i + 1) = 1;
-    return S;
 }
 
 Eigen::MatrixXd GooHook::viscousDampingHeissan(Eigen::VectorXd q,
@@ -594,6 +728,9 @@ Eigen::MatrixXd GooHook::viscousDampingHeissan(Eigen::VectorXd q,
     int n = particles_.size();
     Eigen::MatrixXd dF(n * 2, n * 2);
     dF.setZero();
+    if (!params_.dampingEnabled) {
+        return dF;
+    }
 
     for (auto c : connectors_) {
         auto s = reinterpret_cast<Spring *>(c);
@@ -613,28 +750,23 @@ Eigen::VectorXd GooHook::floorForce(Eigen::VectorXd q,
 {
     VectorXd v = (q - q_prev) / h;
     Eigen::VectorXd F(particles_.size() * 2);
+    F.setZero();
     if (!params_.floorEnabled) {
-        F.setZero();
         return F;
     }
 
+    // non-conservative part, the drag force
+    double kDrag = floorDrag;
     // potential part
     for (int i = 0; i < particles_.size(); i++) {
         F[i * 2] = 0;
-        if (q[i * 2 + 1] < -0.5) {
-            F[i * 2 + 1] = -floorImpulse * particles_[i].mass * params_.gravityG;
-        } else {
-            F[i * 2 + 1] = 0;
-        }
-    }
+        double mass = particles_[i].mass;
+        if (particles_[i].fixed) mass = 0;
 
-    // non-conservative part, the drag force
-    double kDrag = -5.0 * floorDrag;
-    // F += kDrag * massMatrix() * v;
-    for (int i = 0; i < particles_.size(); i++) {
         if (q[i * 2 + 1] < -0.5) {
-            F[i * 2 + 0] += kDrag  * particles_[i].mass * v[i * 2 + 0];
-            F[i * 2 + 1] += kDrag  * particles_[i].mass * v[i * 2 + 1];
+            F[i * 2 + 1] += -floorImpulse * mass * params_.gravityG;
+            F[i * 2 + 0] += kDrag  * mass * v[i * 2 + 0];
+            F[i * 2 + 1] += kDrag  * mass * v[i * 2 + 1];
         }
     }
 
@@ -646,13 +778,24 @@ Eigen::MatrixXd GooHook::floorForceHeissan(Eigen::VectorXd q,
 {
     int n = particles_.size();
     Eigen::MatrixXd dF(n * 2, n * 2);
-    Eigen::MatrixXd I(n * 2, n * 2);
     dF.setZero();
-    I.setIdentity();
+    if (!params_.floorEnabled) {
+        return dF;
+    }
 
-    // TODO: fix it!
-    // double k = -floorDrag / h;
+    double k = floorDrag / h;
     // dF += k * I;
+    for (int i = 0; i < particles_.size(); i++) {
+        int i0 = i * 2;
+        int i1 = i0 + 1;
+        double mass = particles_[i].mass;
+        if (particles_[i].fixed) mass = 0;
+
+        if (q[i1] < -0.5) {
+            dF(i0, i0) += k * mass;
+            dF(i1, i1) += k * mass;
+        }
+    }
 
     return dF;
 }
@@ -664,8 +807,9 @@ SpMat GooHook::massMatrix()
     std::vector<T> mass_vec;
     for (int i = 0; i < n; i++) {
         int i1 = i * 2, i2 = i * 2 + 1;
-        mass_vec.push_back(T(i1, i1, particles_[i].mass));
-        mass_vec.push_back(T(i2, i2, particles_[i].mass));
+        double mass = particles_[i].mass;
+        mass_vec.push_back(T(i1, i1, mass));
+        mass_vec.push_back(T(i2, i2, mass));
     }
 
     M.setFromTriplets(mass_vec.begin(), mass_vec.end());
@@ -680,6 +824,10 @@ SpMat GooHook::massInvMatrix()
     for (int i = 0; i < n; i++) {
         int i1 = i * 2, i2 = i * 2 + 1;
         double mass_inv = 1.0 / particles_[i].mass;
+        if (particles_[i].fixed) {
+            mass_inv = 0.0;
+        }
+
         mass_inv_vec.push_back(T(i1, i1, mass_inv));
         mass_inv_vec.push_back(T(i2, i2, mass_inv));
     }

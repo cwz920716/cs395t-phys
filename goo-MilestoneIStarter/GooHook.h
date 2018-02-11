@@ -84,7 +84,7 @@ private:
     // V = Kmg(y + 0.5) if y < -0.5
     // V = 0 if y >= -0.5
     constexpr static double floorImpulse = 5;
-    constexpr static double floorDrag = 0.4;
+    constexpr static double floorDrag = -2;
     Eigen::VectorXd floorForce(Eigen::VectorXd q,
                                Eigen::VectorXd q_prev, double h);
     Eigen::MatrixXd floorForceHeissan(Eigen::VectorXd q,
