@@ -431,7 +431,7 @@ void GooHook::removeObjects()
     for (int i = 0; i < particles_.size(); i++) {
         // TODO(wcui): remove particles which are too far away
         if (particles_[i].pos.norm() >= 1.42) {
-            // std::cout << "p left screen\n";
+            std::cout << "p left screen\n";
             id_map[i] = -1;
             continue;
         }
@@ -440,7 +440,7 @@ void GooHook::removeObjects()
         for (auto saw : saws_) {
             Vector2d diff = pos -saw.pos;
             if (diff.norm() <= saw.radius) {
-                // std::cout << "particle sawed\n";
+                std::cout << "particle sawed\n";
                 id_map[i] = -1;
                 break;
             } 
@@ -459,7 +459,7 @@ void GooHook::removeObjects()
 
         // if one of spring ends is dead, spring is dead
         if (id_map[s->p1] == -1 || id_map[s->p2] == -1) {
-            // std::cout << "endpoint dead\n";
+            std::cout << "spring endpoint is dead\n";
             dead_s.push_back(s);
             continue;
         }
@@ -473,7 +473,7 @@ void GooHook::removeObjects()
         double e = s_vec.norm() / s->restlen - 1;
         // std::cout << "e=" << e << "\n";
         if (s->canSnap && e >= params_.maxSpringStrain) {
-            // std::cout << "snapped\n";
+            std::cout << "spring snapped\n";
             dead_s.push_back(s);
             continue;
         }
@@ -483,7 +483,7 @@ void GooHook::removeObjects()
         for (auto saw : saws_) {
             double dist = shortestP2S(saw.pos, q1, q2);
             if (dist <= saw.radius) {
-                // std::cout << "spring sawed\n";
+                std::cout << "spring sawed\n";
                 hit_by_saw = true;
                 dead_s.push_back(s);
                 break;
@@ -772,7 +772,7 @@ Eigen::VectorXd GooHook::floorForce(Eigen::VectorXd q,
         if (particles_[i].fixed) mass = 0;
 
         if (q[i * 2 + 1] < -0.5) {
-            F[i * 2 + 1] += -floorImpulse * mass * params_.gravityG;
+            F[i * 2 + 1] += -floorImpulse * mass * -fabs(params_.gravityG);
             F[i * 2 + 0] += kDrag  * mass * v[i * 2 + 0];
             F[i * 2 + 1] += kDrag  * mass * v[i * 2 + 1];
         }
