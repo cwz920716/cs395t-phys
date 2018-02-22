@@ -396,6 +396,54 @@ void GooHook::numericalIntegration(VectorXd &q, VectorXd &v)
     q += params_.timeStep*v;
     computeForceAndHessian(q, oldq, F, H);
     v += params_.timeStep*Minv*F;
+
+    if (params_.constraintHandling == SimParameters::CH_STEPPROJECT) {
+        std::vector<RigidRod *> rods;
+        int nsprings = (int)connectors_.size();
+        int nparticles = (int)particles_.size();
+        int m_start = 2 * nparticles;
+
+        for(int i=0; i<nsprings; i++)
+        {
+            if(connectors_[i]->getType() != SimParameters::CT_RIGIDROD)
+                continue;
+
+            RigidRod *r = (RigidRod *)connectors_[i];
+            rods.push_back(r);
+        }
+
+        int x_size = m_start + int(rods.size());
+        VectorXd f(x_size);
+        std::vector<Eigen::Triplet<double> > df_coeffs;
+
+        VectorXd q0 = q;
+        processRodProjection(rods, q, q0, f, df_coeffs);
+
+        int nIters = 0;
+        while (f.norm() > params_.NewtonTolerance) {
+            SparseMatrix<double> df(x_size, x_size);
+            df.setFromTriplets(df_coeffs.begin(), df_coeffs.end());
+            Eigen::SparseQR<Eigen::SparseMatrix<double>, COLAMDOrdering<int>> solver;
+            solver.compute(df);
+
+            VectorXd delta = solver.solve(-f);
+            q0 += delta.segment(0, 2*nparticles);
+            for (int i = 0; i < rods.size(); i++) {
+                RigidRod *r = rods[i];
+                r->lambda += delta(m_start + i);
+            }
+            processRodProjection(rods, q, q0, f, df_coeffs);
+
+            nIters++;
+            // std::cout << "+++ " << nIters << " iter +++\n\n\n";
+            if (nIters >= params_.NewtonMaxIters) {
+                break;
+            }
+        }
+
+        v += (q0 - q) / params_.timeStep;
+        q = q0;
+    }
 }
 
 void GooHook::computeMassInverse(Eigen::SparseMatrix<double> &Minv)
@@ -431,6 +479,8 @@ void GooHook::computeForceAndHessian(const VectorXd &q, const VectorXd &qprev, E
         processDampingForce(q, qprev, F, Hcoeffs);
     if(params_.floorEnabled)
         processFloorForce(q, qprev, F, Hcoeffs);
+    if(params_.constraintHandling == SimParameters::CH_PENALTY)
+        processRodPenaltyForce(q, F);
 
     H.setFromTriplets(Hcoeffs.begin(), Hcoeffs.end());
 }
@@ -444,6 +494,99 @@ void GooHook::processGravityForce(VectorXd &F)
         {
             F[2*i+1] += params_.gravityG*getTotalParticleMass(i);
         }
+    }
+}
+
+void GooHook::processRodPenaltyForce(const Eigen::VectorXd &q, Eigen::VectorXd &F)
+{
+    int nsprings = (int)connectors_.size();
+
+    for(int i=0; i<nsprings; i++)
+    {
+        if(connectors_[i]->getType() != SimParameters::CT_RIGIDROD)
+            continue;
+
+        RigidRod &r = *(RigidRod *)connectors_[i];
+        Vector2d p1 = q.segment<2>(2*r.p1);
+        Vector2d p2 = q.segment<2>(2*r.p2);
+        Vector2d diff = p1 - p2;
+        double g = diff.squaredNorm() - r.length * r.length;
+        Vector2d localF = -4 * params_.penaltyStiffness * g * diff;
+        F.segment<2>(2*r.p1) += localF;
+        F.segment<2>(2*r.p2) -= localF;
+    }
+}
+
+void GooHook::processRodProjection(const std::vector<RigidRod *> &rods,
+                                   const Eigen::VectorXd &q_telda, const Eigen::VectorXd &q,
+                                   Eigen::VectorXd &f, std::vector<Eigen::Triplet<double> > &df)
+{
+    int nparticles = (int)particles_.size();
+    int nrods = (int)rods.size();
+    int m = nrods;
+    SparseMatrix<double> Minv;
+    computeMassInverse(Minv);
+
+    f.setZero();
+    VectorXd sigma(2 * nparticles);
+    sigma.setZero();
+    int m_start = 2 * nparticles;
+    for(int i=0; i<nrods; i++)
+    {
+        RigidRod &r = *rods[i];
+        Vector2d p1 = q.segment<2>(2*r.p1);
+        Vector2d p2 = q.segment<2>(2*r.p2);
+        Vector2d diff = p1 - p2;
+        double g = diff.squaredNorm() - r.length * r.length;
+
+        VectorXd dgi(2 * nparticles);
+        dgi.setZero();
+        dgi.segment<2>(2*r.p1) = 2 * diff;
+        dgi.segment<2>(2*r.p2) = -2 * diff;
+        sigma += r.lambda * Minv * dgi;
+
+        f(m_start + i) = g;
+    }
+    f.segment(0, 2 * nparticles) = q - q_telda + sigma;
+
+    df.clear();
+    for (int i = 0; i < nparticles; i++) {
+        df.push_back(Eigen::Triplet<double>(2*i, 2*i, 1.0));
+        df.push_back(Eigen::Triplet<double>(2*i+1, 2*i+1, 1.0));
+    }
+
+    for(int i=0; i<nrods; i++)
+    {
+        RigidRod &r = *rods[i];
+        Vector2d p1 = q.segment<2>(2*r.p1);
+        Vector2d p2 = q.segment<2>(2*r.p2);
+        Vector2d diff = p1 - p2;
+        double l = r.lambda;
+
+        // Push M_inv * dg_{i}^T
+        Vector2d local_dg = 2 * diff;
+        double m1 = Minv.coeff(2*r.p1, 2*r.p1);
+        double m2 = Minv.coeff(2*r.p2, 2*r.p2);
+        df.push_back(Eigen::Triplet<double>(2*r.p1, m_start + i, m1 * local_dg[0]));
+        df.push_back(Eigen::Triplet<double>(2*r.p1 + 1, m_start + i, m1 * local_dg[1]));
+        df.push_back(Eigen::Triplet<double>(2*r.p2, m_start + i, -m2 * local_dg[0]));
+        df.push_back(Eigen::Triplet<double>(2*r.p2 + 1, m_start + i, -m2 * local_dg[1]));
+
+        // Push dgi
+        df.push_back(Eigen::Triplet<double>(m_start + i, 2*r.p1, local_dg[0]));
+        df.push_back(Eigen::Triplet<double>(m_start + i, 2*r.p1+1, local_dg[1]));
+        df.push_back(Eigen::Triplet<double>(m_start + i, 2*r.p2, -local_dg[0]));
+        df.push_back(Eigen::Triplet<double>(m_start + i, 2*r.p2+1, -local_dg[1]));
+
+        // Push lambda * M_inv * Heissan
+        df.push_back(Eigen::Triplet<double>(2*r.p1, 2*r.p1, 2 * m1 * l));
+        df.push_back(Eigen::Triplet<double>(2*r.p1+1, 2*r.p1+1, 2 * m1 * l));
+        df.push_back(Eigen::Triplet<double>(2*r.p1, 2*r.p2, -2 * m1 * l));
+        df.push_back(Eigen::Triplet<double>(2*r.p1+1, 2*r.p2+1, -2 * m1 * l));
+        df.push_back(Eigen::Triplet<double>(2*r.p2, 2*r.p1, -2 * m1 * l));
+        df.push_back(Eigen::Triplet<double>(2*r.p2+1, 2*r.p1+1, -2 * m1 * l));
+        df.push_back(Eigen::Triplet<double>(2*r.p2, 2*r.p2, 2 * m1 * l));
+        df.push_back(Eigen::Triplet<double>(2*r.p2+1, 2*r.p2+1, 2 * m1 * l));
     }
 }
 
