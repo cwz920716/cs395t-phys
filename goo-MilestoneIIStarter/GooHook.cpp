@@ -395,9 +395,11 @@ void GooHook::numericalIntegration(VectorXd &q, VectorXd &v)
 
     q += params_.timeStep*v;
     computeForceAndHessian(q, oldq, F, H);
-    v += params_.timeStep*Minv*F;
 
-    if (params_.constraintHandling == SimParameters::CH_STEPPROJECT) {
+    if (params_.constraintHandling == SimParameters::CH_PENALTY) {
+        v += params_.timeStep*Minv*F;
+    } else if (params_.constraintHandling == SimParameters::CH_STEPPROJECT) {
+        v += params_.timeStep*Minv*F;
         std::vector<RigidRod *> rods;
         int nsprings = (int)connectors_.size();
         int nparticles = (int)particles_.size();
@@ -435,7 +437,7 @@ void GooHook::numericalIntegration(VectorXd &q, VectorXd &v)
             processRodProjection(rods, q, q0, f, df_coeffs);
 
             nIters++;
-            // std::cout << "+++ " << nIters << " iter +++\n\n\n";
+            std::cout << "+++ " << nIters << " iter +++\n\n\n";
             if (nIters >= params_.NewtonMaxIters) {
                 break;
             }
@@ -443,6 +445,70 @@ void GooHook::numericalIntegration(VectorXd &q, VectorXd &v)
 
         v += (q0 - q) / params_.timeStep;
         q = q0;
+    } else {
+        std::vector<RigidRod *> rods;
+        int nsprings = (int)connectors_.size();
+        int nparticles = (int)particles_.size();
+
+        for(int i=0; i<nsprings; i++)
+        {
+            if(connectors_[i]->getType() != SimParameters::CT_RIGIDROD)
+                continue;
+
+            RigidRod *r = (RigidRod *)connectors_[i];
+            rods.push_back(r);
+        }
+
+        int m = rods.size();
+        VectorXd lambda(m);
+        for (int i = 0; i < m; i++) {
+            lambda[i] = rods[i]->lambda;
+        }
+
+        VectorXd q2_cons = q + params_.timeStep*v +
+                             params_.timeStep*params_.timeStep*Minv*F;
+
+        SparseMatrix<double> dg(m, 2 * nparticles);
+        std::vector<Eigen::Triplet<double> > dg_coeffs;
+        compute_dg(rods, q, dg_coeffs);
+        dg.setFromTriplets(dg_coeffs.begin(), dg_coeffs.end());
+        // std::cout << "dg=[\n" << dg << "]" << std::endl;
+        SparseMatrix<double> dgT = dg.transpose();
+        SparseMatrix<double> dq2 = params_.timeStep*params_.timeStep*Minv*dgT;
+
+        VectorXd q2_0 = q2_cons + dq2*lambda;
+        // std::cout << "q_i+2=[\n" << q2_0 << "]" << std::endl;
+        VectorXd f(m);
+        compute_g(rods, q2_0, f);
+        // std::cout << "f=[\n" << f << "]" << std::endl;
+
+        int nIters = 0;
+        while (f.norm() > params_.NewtonTolerance) {
+            SparseMatrix<double> dg_q2(m, 2 * nparticles);
+            std::vector<Eigen::Triplet<double> > dg_q2_coeffs;
+            compute_dg(rods, q2_0, dg_q2_coeffs);
+            dg_q2.setFromTriplets(dg_q2_coeffs.begin(), dg_q2_coeffs.end());
+            // std::cout << "dg(q_i+2)=[\n" << dg_q2 << "]" << std::endl;
+            SparseMatrix<double> df = dg_q2 * dq2;
+
+            Eigen::SparseQR<Eigen::SparseMatrix<double>, COLAMDOrdering<int>> solver;
+            solver.compute(df);
+            VectorXd delta = solver.solve(-f);
+            lambda += delta;
+            q2_0 = q2_cons + dq2*lambda;
+            compute_g(rods, q2_0, f);
+
+            nIters++;
+            // std::cout << "+++ " << nIters << " iter +++\n\n\n";
+            if (nIters >= params_.NewtonMaxIters) {
+                break;
+            }
+        }
+
+        v += params_.timeStep*Minv*F + params_.timeStep*Minv*dgT*lambda;
+        for (int i = 0; i < m; i++) {
+            rods[i]->lambda = lambda[i];
+        }
     }
 }
 
@@ -514,6 +580,43 @@ void GooHook::processRodPenaltyForce(const Eigen::VectorXd &q, Eigen::VectorXd &
         Vector2d localF = -4 * params_.penaltyStiffness * g * diff;
         F.segment<2>(2*r.p1) += localF;
         F.segment<2>(2*r.p2) -= localF;
+    }
+}
+
+// dg(q) is mx2n
+void GooHook::compute_dg(const std::vector<RigidRod *> &rods,
+                                 const Eigen::VectorXd &q, std::vector<Eigen::Triplet<double> > &dg)
+{
+    int nrods = (int)rods.size();
+    dg.clear();
+    for(int i=0; i<nrods; i++)
+    {
+        RigidRod &r = *rods[i];
+        Vector2d p1 = q.segment<2>(2*r.p1);
+        Vector2d p2 = q.segment<2>(2*r.p2);
+        Vector2d diff = p1 - p2;
+        Vector2d local_dg = 2 * diff;
+
+        dg.push_back(Eigen::Triplet<double>(i, 2*r.p1, local_dg[0]));
+        dg.push_back(Eigen::Triplet<double>(i, 2*r.p1+1, local_dg[1]));
+        dg.push_back(Eigen::Triplet<double>(i, 2*r.p2, -local_dg[0]));
+        dg.push_back(Eigen::Triplet<double>(i, 2*r.p2+1, -local_dg[1]));
+    }
+}
+
+void GooHook::compute_g(const std::vector<RigidRod *> &rods,
+                                 const Eigen::VectorXd &q, Eigen::VectorXd &g)
+{
+    int nrods = (int)rods.size();
+    for(int i=0; i<nrods; i++)
+    {
+        RigidRod &r = *rods[i];
+        Vector2d p1 = q.segment<2>(2*r.p1);
+        Vector2d p2 = q.segment<2>(2*r.p2);
+        Vector2d diff = p1 - p2;
+        double local_g = diff.squaredNorm() - r.length * r.length;
+
+        g[i] = local_g;
     }
 }
 

@@ -82,6 +82,10 @@ private:
     void processRodProjection(const std::vector<RigidRod *> &rods,
                                    const Eigen::VectorXd &q_telda, const Eigen::VectorXd &q,
                                    Eigen::VectorXd &f, std::vector<Eigen::Triplet<double> > &df);
+    void compute_dg(const std::vector<RigidRod *> &rods,
+                                 const Eigen::VectorXd &q, std::vector<Eigen::Triplet<double> > &dg);
+    void compute_g(const std::vector<RigidRod *> &rods,
+                                 const Eigen::VectorXd &q, Eigen::VectorXd &g);
 
     double ptSegmentDist(const Eigen::Vector2d &p, const Eigen::Vector2d &q1, const Eigen::Vector2d &q2);
     void detectSawedConnectors(std::set<int> &connectorsToDelete);
