@@ -325,6 +325,41 @@ void GooHook::addParticle(double x, double y)
             case SimParameters::CT_FLEXROD:
             {
                 // TODO add flexible rods here
+                int s = params_.rodSegments;
+                if (s < 2) s = 2;
+                Vector2d dir = (pos - newpos) / dist;
+                double unit_len = dist / s;
+                std::vector<int> endpoint_ids;
+                endpoint_ids.push_back(newid);
+                for (int i = 1; i < s; i++) {
+                    Vector2d p_i = newpos + dir * i * unit_len;
+                    int p_id = particles_.size();
+                    particles_.push_back(Particle(p_i, 0.0, false, true));
+                    endpoint_ids.push_back(p_id);
+                }
+                endpoint_ids.push_back(i);  // [0:s]
+
+                std::vector<int> hinge_ids;  // [0:s-2]
+                for (int i = 1; i < s; i++) {
+                    int hid = bendingStencils_.size();
+                    hinge_ids.push_back(hid);
+                    bendingStencils_.push_back(BendingStencil(endpoint_ids[i-1], endpoint_ids[i], endpoint_ids[i+1], params_.rodBendingStiffness / unit_len));
+                }
+
+                for (int i = 1; i <= s; i++) {
+                    // spring[i-1:i]
+                    Spring *spring = new Spring(endpoint_ids[i-1], endpoint_ids[i],
+                                           params_.rodDensity*unit_len, params_.rodStretchingStiffness/unit_len, unit_len, false);
+                    if (i < s) {
+                        // 1 <= i <= s - 1
+                        spring->associatedBendingStencils.insert(hinge_ids[i-1]);
+                    }
+                    if (i > 1) {
+                        // 2 <= i <= s
+                        spring->associatedBendingStencils.insert(hinge_ids[i-2]);
+                    }
+                    connectors_.push_back(spring);
+                }
                 break;
             }
             default:
@@ -338,6 +373,14 @@ double GooHook::getTotalParticleMass(int idx)
 {
     double mass = particles_[idx].mass;
     //TODO account for flexible rods adding mass
+    if (!particles_[idx].fixed) {
+        for(std::vector<Connector *>::iterator it = connectors_.begin(); it != connectors_.end(); ++it)
+        {
+            if (idx == (*it)->p1 || idx == (*it)->p2) {
+                mass += (*it)->mass / 2;
+            }
+        }
+    }
     return mass;
 }
 
@@ -437,7 +480,7 @@ void GooHook::numericalIntegration(VectorXd &q, VectorXd &v)
             processRodProjection(rods, q, q0, f, df_coeffs);
 
             nIters++;
-            std::cout << "+++ " << nIters << " iter +++\n\n\n";
+            // std::cout << "+++ " << nIters << " iter +++\n\n\n";
             if (nIters >= params_.NewtonMaxIters) {
                 break;
             }
@@ -545,6 +588,8 @@ void GooHook::computeForceAndHessian(const VectorXd &q, const VectorXd &qprev, E
         processDampingForce(q, qprev, F, Hcoeffs);
     if(params_.floorEnabled)
         processFloorForce(q, qprev, F, Hcoeffs);
+    if (params_.bendingEnabled)
+        processBendingForce(q, F);
     if(params_.constraintHandling == SimParameters::CH_PENALTY)
         processRodPenaltyForce(q, F);
 
@@ -560,6 +605,35 @@ void GooHook::processGravityForce(VectorXd &F)
         {
             F[2*i+1] += params_.gravityG*getTotalParticleMass(i);
         }
+    }
+}
+
+void GooHook::processBendingForce(const Eigen::VectorXd &q, Eigen::VectorXd &F)
+{
+    int nhinges = (int) bendingStencils_.size();
+
+    for(int i = 0; i < nhinges; i++) {
+        const BendingStencil& hinge = bendingStencils_[i];
+        Vector2d p1 = q.segment<2>(2*hinge.p1);
+        Vector2d p2 = q.segment<2>(2*hinge.p2);
+        Vector2d p3 = q.segment<2>(2*hinge.p3);
+
+        Vector3d Pi, Pj, Pk, z;
+        Pi[0] = p1[0]; Pi[1] = p1[1]; Pi[2] = 0;
+        Pj[0] = p2[0]; Pj[1] = p2[1]; Pj[2] = 0;
+        Pk[0] = p3[0]; Pk[1] = p3[1]; Pk[2] = 0;
+        z[0] = 0; z[1] = 0; z[2] = 1;
+
+        Vector3d Pij = Pj - Pi;
+        Vector3d Pjk = Pk - Pj;
+        double theta = 2 * std::atan2(Pij.cross(Pjk).dot(z), Pij.norm() * Pjk.norm() + Pij.dot(Pjk));
+        Vector3d Fi = hinge.kb * theta * Pij.cross(z) / Pij.squaredNorm();
+        Vector3d Fk = hinge.kb * theta * Pjk.cross(z) / Pjk.squaredNorm();
+        Vector3d Fj = -Fi - Fk;
+
+        F.segment<2>(2*hinge.p1) += Fi.segment<2>(0);
+        F.segment<2>(2*hinge.p2) += Fj.segment<2>(0);
+        F.segment<2>(2*hinge.p3) += Fk.segment<2>(0);
     }
 }
 

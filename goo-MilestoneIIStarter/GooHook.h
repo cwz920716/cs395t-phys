@@ -79,6 +79,7 @@ private:
     void processDampingForce(const Eigen::VectorXd &q, const Eigen::VectorXd &qprev, Eigen::VectorXd &F, std::vector<Eigen::Triplet<double> > &H);
     void processFloorForce(const Eigen::VectorXd &q, const Eigen::VectorXd &qprev, Eigen::VectorXd &F, std::vector<Eigen::Triplet<double> > &H);
     void processRodPenaltyForce(const Eigen::VectorXd &q, Eigen::VectorXd &F);
+    void processBendingForce(const Eigen::VectorXd &q, Eigen::VectorXd &F);
     void processRodProjection(const std::vector<RigidRod *> &rods,
                                    const Eigen::VectorXd &q_telda, const Eigen::VectorXd &q,
                                    Eigen::VectorXd &f, std::vector<Eigen::Triplet<double> > &df);
