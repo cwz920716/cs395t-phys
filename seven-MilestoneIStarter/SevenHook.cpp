@@ -124,6 +124,25 @@ bool SevenHook::simulateOneStep()
         // std::cout << "theta(i+1)=\n" << rbi->theta.norm() << "\n";
     }
 
+    if (!params_.gravityEnabled) {
+        return false;
+    }
+
+    int nbody = bodies_.size();
+    for (int i = 0; i < nbody; i++) {
+        for (int j = i + 1; j < nbody; j++) {
+            RigidBodyInstance *b1 = bodies_[i];
+            RigidBodyInstance *b2 = bodies_[j];
+            Eigen::Vector3d diff = b1->c - b2->c;
+            double dist = diff.norm();
+            double k = params_.gravityG * b1->getMass() * b2->getMass() / (dist * dist * dist);
+            Eigen::Vector3d F1 = -1 * k * diff;
+            Eigen::Vector3d F2 = -1 * F1;
+            b1->cvel += params_.timeStep * F1 / b1->getMass();
+            b2->cvel += params_.timeStep * F2 / b2->getMass();
+        }
+    }
+
     return false;
 }
 

@@ -4,6 +4,7 @@
 #include <Eigen/Core>
 #include <list>
 #include <vector>
+#include "RigidBodyTemplate.h"
 
 class RigidBodyTemplate;
 
@@ -22,6 +23,8 @@ public:
     double density;
     
     const RigidBodyTemplate &getTemplate() const {return rbtemplate_;}
+    
+    const double getMass() const {return rbtemplate_.getVolume() * density;}
     
 private:
     const RigidBodyTemplate &rbtemplate_;
