@@ -72,7 +72,57 @@ bool SevenHook::simulateOneStep()
 {   
     time_ += params_.timeStep;
 
+    const double PI = 3.1415926535897;
+
     // TODO: rigid body dynamics
+    for (RigidBodyInstance *rbi : bodies_)
+    {
+        rbi->c += rbi->cvel * params_.timeStep;
+        auto hw = params_.timeStep * rbi->w;
+        auto old_theta = rbi->theta;
+        auto axis1 = rbi->theta; axis1.normalize();
+        rbi->theta = VectorMath::axisAngle(VectorMath::rotationMatrix(rbi->theta)
+                                           * VectorMath::rotationMatrix(hw));
+        auto axis2 = rbi->theta;  axis2.normalize();
+        // how to handle when theta > pi
+        if ((axis1 - axis2).norm() > 1.9) {
+            std::cout << "prepare to flip from " << old_theta.norm() << " to " << rbi->theta.norm() << "\n";
+            std::cout << "prepare to flip a* from\n" << axis1 << "\nto\n" << axis2 << "\n";
+            // rbi->theta = (2 * PI - rbi->theta.norm()) * axis1;
+            // axis2 = rbi->theta;  axis2.normalize();
+            std::cout << "flip from " << old_theta.norm() << " to " << rbi->theta.norm() << "\n";
+            std::cout << "flip a* from\n" << axis1 << "\nto\n" << axis2 << "\n";
+        }
+
+        Eigen::Vector3d w_next = rbi->w;
+        Eigen::Matrix3d MI = rbi->getTemplate().getInertiaTensor();
+        Eigen::Matrix3d Thw_Tinv = VectorMath::TMatrix(hw).inverse().transpose();
+        Eigen::Vector3d rhs1 = Thw_Tinv * MI * rbi->w;
+        Eigen::Vector3d hw_next = -1 * params_.timeStep * w_next;
+        Eigen::Matrix3d df = VectorMath::TMatrix(hw_next).inverse().transpose() * MI;
+        Eigen::Vector3d lhs = df * w_next;
+        Eigen::Vector3d f = lhs - rhs1;
+        int nIters = 0;
+        while (f.norm() > params_.NewtonTolerance) {
+            Vector3d delta = df.colPivHouseholderQr().solve(-f);
+            w_next += delta;
+            hw_next = -1 * params_.timeStep * w_next;
+            df = VectorMath::TMatrix(hw_next).inverse().transpose() * MI;
+            lhs = df * w_next;
+            f = lhs - rhs1;
+
+            nIters++;
+            // std::cout << "f.norm = " << f.norm() << "\n";
+            // std::cout << "+++ " << nIters << " iter +++\n\n\n";
+            if (nIters >= params_.NewtonMaxIters) {
+                break;
+            }
+        }
+        // std::cout << "w(i)=\n" << rbi->w << "\n";
+        // std::cout << "w(i+1)=\n" << w_next << "\n";
+        rbi->w = w_next;
+        // std::cout << "theta(i+1)=\n" << rbi->theta.norm() << "\n";
+    }
 
     return false;
 }

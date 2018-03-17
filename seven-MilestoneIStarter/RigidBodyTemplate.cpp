@@ -222,14 +222,6 @@ void RigidBodyTemplate::initialize()
     c(Z) = T1[Z] / volume_;
     // std::cout << "C=[\n" << c << "]\n";
 
-    for (int i = 0; i < numVerts; i++) {
-        V(i, X) -= c(X);
-        V(i, Y) -= c(Y);
-        V(i, Z) -= c(Z);
-    }
-    computeNorms();
-    computeIntegrals();
-
     /* compute inertia tensor */
     inertiaTensor_(X, X) = T2[Y] + T2[Z];
     inertiaTensor_(Y, Y) = T2[Z] + T2[X];
@@ -238,6 +230,22 @@ void RigidBodyTemplate::initialize()
     inertiaTensor_(Y, Z) = inertiaTensor_(Z, Y) = - TP[Y];
     inertiaTensor_(Z, X) = inertiaTensor_(X, Z) = - TP[Z];
 
+    double mass = volume_;
+    inertiaTensor_(X, X) -= mass * (c[Y]*c[Y] + c[Z]*c[Z]);
+    inertiaTensor_(Y, Y) -= mass * (c[Z]*c[Z] + c[X]*c[X]);
+    inertiaTensor_(Z, Z) -= mass * (c[X]*c[X] + c[Y]*c[Y]);
+    inertiaTensor_(X, Y) = inertiaTensor_(Y, X) += mass * c[X] * c[Y]; 
+    inertiaTensor_(Y, Z) = inertiaTensor_(Z, Y) += mass * c[Y] * c[Z]; 
+    inertiaTensor_(X, Z) = inertiaTensor_(Z, X) += mass * c[Z] * c[X]; 
 
-    // std::cout << "inertiaTensor_=\n" << inertiaTensor_ << "\n";
+    for (int i = 0; i < numVerts; i++) {
+        V(i, X) -= c(X);
+        V(i, Y) -= c(Y);
+        V(i, Z) -= c(Z);
+    }
+    computeNorms();
+    // computeIntegrals();
+
+
+    std::cout << "inertiaTensor_=\n" << inertiaTensor_ << "\n";
 }    
