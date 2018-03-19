@@ -86,12 +86,12 @@ bool SevenHook::simulateOneStep()
         auto axis2 = rbi->theta;  axis2.normalize();
         // how to handle when theta > pi
         if ((axis1 - axis2).norm() > 1.9) {
-            std::cout << "prepare to flip from " << old_theta.norm() << " to " << rbi->theta.norm() << "\n";
-            std::cout << "prepare to flip a* from\n" << axis1 << "\nto\n" << axis2 << "\n";
+            // std::cout << "prepare to flip from " << old_theta.norm() << " to " << rbi->theta.norm() << "\n";
+            // std::cout << "prepare to flip a* from\n" << axis1 << "\nto\n" << axis2 << "\n";
             // rbi->theta = (2 * PI - rbi->theta.norm()) * axis1;
             // axis2 = rbi->theta;  axis2.normalize();
-            std::cout << "flip from " << old_theta.norm() << " to " << rbi->theta.norm() << "\n";
-            std::cout << "flip a* from\n" << axis1 << "\nto\n" << axis2 << "\n";
+            // std::cout << "flip from " << old_theta.norm() << " to " << rbi->theta.norm() << "\n";
+            // std::cout << "flip a* from\n" << axis1 << "\nto\n" << axis2 << "\n";
         }
 
         Eigen::Vector3d w_next = rbi->w;
