@@ -25,9 +25,11 @@ private:
     RigidBodyTemplate &operator=(const RigidBodyTemplate &other) = delete;
 
     void computeNorms();
+    void computeCOM();
     void computeIntegrals();
     void computeFaceIntegrals(int f);
     void computeProjectionIntegrals(int f);
+    void computeCOMProjectionIntegrals(int f);
 
     void initialize();
 
@@ -54,7 +56,7 @@ private:
     double Fa, Fb, Fc, Faa, Fbb, Fcc, Faaa, Fbbb, Fccc, Faab, Fbbc, Fcca;
 
     /* volume integrals */
-    double T0, T1[3], T2[3], TP[3];    
+    double T0, T1[3], T2[3], TP[3];
 };
 
 #endif // RIGIDBODYTEMPLATE_H

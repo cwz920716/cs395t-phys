@@ -84,17 +84,18 @@ bool SevenHook::simulateOneStep()
         rbi->theta = VectorMath::axisAngle(VectorMath::rotationMatrix(rbi->theta)
                                            * VectorMath::rotationMatrix(hw));
         auto axis2 = rbi->theta;  axis2.normalize();
-        // how to handle when theta > pi
-        if ((axis1 - axis2).norm() > 1.9) {
+        // If axis2 is flipped from axis1, then their sum will close to 0
+        if ((axis1 + axis2).norm() < 1e-6) {
             // std::cout << "prepare to flip from " << old_theta.norm() << " to " << rbi->theta.norm() << "\n";
             // std::cout << "prepare to flip a* from\n" << axis1 << "\nto\n" << axis2 << "\n";
-            // rbi->theta = (2 * PI - rbi->theta.norm()) * axis1;
+            rbi->theta = (2 * PI - rbi->theta.norm()) * axis1;
             // axis2 = rbi->theta;  axis2.normalize();
             // std::cout << "flip from " << old_theta.norm() << " to " << rbi->theta.norm() << "\n";
             // std::cout << "flip a* from\n" << axis1 << "\nto\n" << axis2 << "\n";
         }
 
         Eigen::Vector3d w_next = rbi->w;
+        // density can be ignored since it appears at both side of equation
         Eigen::Matrix3d MI = rbi->getTemplate().getInertiaTensor();
         Eigen::Matrix3d Thw_Tinv = VectorMath::TMatrix(hw).inverse().transpose();
         Eigen::Vector3d rhs1 = Thw_Tinv * MI * rbi->w;
@@ -103,8 +104,9 @@ bool SevenHook::simulateOneStep()
         Eigen::Vector3d lhs = df * w_next;
         Eigen::Vector3d f = lhs - rhs1;
         int nIters = 0;
+        // std::cout << "f.norm = " << f.norm() << "\n";
         while (f.norm() > params_.NewtonTolerance) {
-            Vector3d delta = df.colPivHouseholderQr().solve(-f);
+            Vector3d delta = df.fullPivLu().solve(-f);
             w_next += delta;
             hw_next = -1 * params_.timeStep * w_next;
             df = VectorMath::TMatrix(hw_next).inverse().transpose() * MI;
@@ -113,11 +115,11 @@ bool SevenHook::simulateOneStep()
 
             nIters++;
             // std::cout << "f.norm = " << f.norm() << "\n";
-            // std::cout << "+++ " << nIters << " iter +++\n\n\n";
             if (nIters >= params_.NewtonMaxIters) {
                 break;
             }
         }
+        // std::cout << "+++ " << nIters << " iter +++\n\n\n";
         // std::cout << "w(i)=\n" << rbi->w << "\n";
         // std::cout << "w(i+1)=\n" << w_next << "\n";
         rbi->w = w_next;
