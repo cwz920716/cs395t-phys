@@ -13,7 +13,7 @@ using namespace Eigen;
 #define Y 1
 #define Z 2
 
-#define SQR(x) ((x)*(x))
+#define SQUARE(x) ((x)*(x))
 #define CUBE(x) ((x)*(x)*(x))
 
 RigidBodyTemplate::RigidBodyTemplate(const std::string &meshFilename, double scale) : volume_(0), radius_(0)
@@ -33,39 +33,30 @@ RigidBodyTemplate::~RigidBodyTemplate()
 
 void RigidBodyTemplate::computeCOMProjectionIntegrals(int f)
 {
-    double a0, a1, da;
-    double b0, b1, db;
-    double a0_2, a0_3, a0_4, b0_2, b0_3, b0_4;
-    double a1_2, a1_3, b1_2, b1_3;
-    double C1, Ca, Caa, Cb, Cbb;
-    double Cab, Kab;
-
-    P1 = Pa = Pb = Paa = Pab = Pbb = Paaa = Paab = Pabb = Pbbb = 0.0;
+    P1 = Pa = Pb = Paa = Pab = Pbb = Paaa = Paab = Pabb = Pbbb = 0;
 
     for (int i = 0; i < 3; i++) {
         int ii = (i + 1) % 3;
-        a0 = V(F(f, i), A);
-        b0 = V(F(f, i), B);
-        a1 = V(F(f, ii), A);
-        b1 = V(F(f, ii), B);
-        da = a1 - a0;
-        db = b1 - b0;
-        a0_2 = a0 * a0;
-        a0_3 = a0_2 * a0;
-        b0_2 = b0 * b0;
-        b0_3 = b0_2 * b0;
-        a1_2 = a1 * a1;
-        a1_3 = a1_2 * a1; 
-        b1_2 = b1 * b1;
-        b1_3 = b1_2 * b1;
+        double a0 = V(F(f, i), A);
+        double b0 = V(F(f, i), B);
+        double a1 = V(F(f, ii), A);
+        double b1 = V(F(f, ii), B);
+        double da = a1 - a0;
+        double db = b1 - b0;
+        double a0_2 = a0 * a0;
+        double a0_3 = a0_2 * a0;
+        double b0_2 = b0 * b0;
+        double b0_3 = b0_2 * b0;
+        double a1_2 = a1 * a1; 
+        double b1_2 = b1 * b1;
 
-        C1 = a1 + a0;
-        Ca = a1*C1 + a0_2;
-        Caa = a1*Ca + a0_3;
-        Cb = b1*(b1 + b0) + b0_2;
-        Cbb = b1*Cb + b0_3;
-        Cab = 3*a1_2 + 2*a1*a0 + a0_2;
-        Kab = a1_2 + 2*a1*a0 + 3*a0_2;
+        double C1 = a1 + a0;
+        double Ca = a1*C1 + a0_2;
+        double Caa = a1*Ca + a0_3;
+        double Cb = b1*(b1 + b0) + b0_2;
+        double Cbb = b1*Cb + b0_3;
+        double Cab = 3*a1_2 + 2*a1*a0 + a0_2;
+        double Kab = a1_2 + 2*a1*a0 + 3*a0_2;
 
         P1 += db*C1;
         Pa += db*Ca;
@@ -89,35 +80,40 @@ void RigidBodyTemplate::computeCOMProjectionIntegrals(int f)
 
 void RigidBodyTemplate::computeProjectionIntegrals(int f)
 {
-    double a0, a1, da;
-    double b0, b1, db;
-    double a0_2, a0_3, a0_4, b0_2, b0_3, b0_4;
-    double a1_2, a1_3, b1_2, b1_3;
-    double C1, Ca, Caa, Caaa, Cb, Cbb, Cbbb;
-    double Cab, Kab, Caab, Kaab, Cabb, Kabb;
-
-    P1 = Pa = Pb = Paa = Pab = Pbb = Paaa = Paab = Pabb = Pbbb = 0.0;
+    P1 = Pa = Pb = Paa = Pab = Pbb = Paaa = Paab = Pabb = Pbbb = 0;
 
     for (int i = 0; i < 3; i++) {
         int ii = (i + 1) % 3;
-        a0 = V(F(f, i), A);
-        b0 = V(F(f, i), B);
-        a1 = V(F(f, ii), A);
-        b1 = V(F(f, ii), B);
-        da = a1 - a0;
-        db = b1 - b0;
-        a0_2 = a0 * a0; a0_3 = a0_2 * a0; a0_4 = a0_3 * a0;
-        b0_2 = b0 * b0; b0_3 = b0_2 * b0; b0_4 = b0_3 * b0;
-        a1_2 = a1 * a1; a1_3 = a1_2 * a1; 
-        b1_2 = b1 * b1; b1_3 = b1_2 * b1;
+        double a0 = V(F(f, i), A);
+        double b0 = V(F(f, i), B);
+        double a1 = V(F(f, ii), A);
+        double b1 = V(F(f, ii), B);
+        double da = a1 - a0;
+        double db = b1 - b0;
+        double a0_2 = a0 * a0;
+        double a0_3 = a0_2 * a0;
+        double a0_4 = a0_3 * a0;
+        double b0_2 = b0 * b0;
+        double b0_3 = b0_2 * b0;
+        double b0_4 = b0_3 * b0;
+        double a1_2 = a1 * a1;
+        double a1_3 = a1_2 * a1; 
+        double b1_2 = b1 * b1;
+        double b1_3 = b1_2 * b1;
 
-        C1 = a1 + a0;
-        Ca = a1*C1 + a0_2; Caa = a1*Ca + a0_3; Caaa = a1*Caa + a0_4;
-        Cb = b1*(b1 + b0) + b0_2; Cbb = b1*Cb + b0_3; Cbbb = b1*Cbb + b0_4;
-        Cab = 3*a1_2 + 2*a1*a0 + a0_2; Kab = a1_2 + 2*a1*a0 + 3*a0_2;
-        Caab = a0*Cab + 4*a1_3; Kaab = a1*Kab + 4*a0_3;
-        Cabb = 4*b1_3 + 3*b1_2*b0 + 2*b1*b0_2 + b0_3;
-        Kabb = b1_3 + 2*b1_2*b0 + 3*b1*b0_2 + 4*b0_3;
+        double C1 = a1 + a0;
+        double Ca = a1*C1 + a0_2;
+        double Caa = a1*Ca + a0_3;
+        double Caaa = a1*Caa + a0_4;
+        double Cb = b1*(b1 + b0) + b0_2;
+        double Cbb = b1*Cb + b0_3;
+        double Cbbb = b1*Cbb + b0_4;
+        double Cab = 3*a1_2 + 2*a1*a0 + a0_2;
+        double Kab = a1_2 + 2*a1*a0 + 3*a0_2;
+        double Caab = a0*Cab + 4*a1_3;
+        double Kaab = a1*Kab + 4*a0_3;
+        double Cabb = 4*b1_3 + 3*b1_2*b0 + 2*b1*b0_2 + b0_3;
+        double Kabb = b1_3 + 2*b1_2*b0 + 3*b1*b0_2 + 4*b0_3;
 
         P1 += db*C1;
         Pa += db*Ca;
@@ -155,20 +151,34 @@ void RigidBodyTemplate::computeFaceIntegrals(int f) {
 
     Faa = k1 * Paa;
     Fbb = k1 * Pbb;
-    Fcc = k3 * (SQR(norms(f, A))*Paa + 2*norms(f, A)*norms(f, B)*Pab + SQR(norms(f, B))*Pbb
-          + w(f)*(2*(norms(f, A)*Pa + norms(f, B)*Pb) + w(f)*P1));
+    Fcc = k3 * (SQUARE(norms(f, A)) * Paa +
+                2 * norms(f, A) * norms(f, B) * Pab +
+                SQUARE(norms(f, B)) * Pbb +
+                2 * w(f) * norms(f, A) * Pa +
+                2 * w(f) * norms(f, B) * Pb +
+                SQUARE(w(f)) * P1);
 
     Faaa = k1 * Paaa;
     Fbbb = k1 * Pbbb;
-    Fccc = -k4 * (CUBE(norms(f, A))*Paaa + 3*SQR(norms(f, A))*norms(f, B)*Paab 
-           + 3*norms(f, A)*SQR(norms(f, B))*Pabb + CUBE(norms(f, B))*Pbbb
-           + 3*w(f)*(SQR(norms(f, A))*Paa + 2*norms(f, A)*norms(f, B)*Pab + SQR(norms(f, B))*Pbb)
-           + w(f)*w(f)*(3*(norms(f, A)*Pa + norms(f, A)*Pb) + w(f)*P1));
+    Fccc = -k4 * (CUBE(norms(f, A)) * Paaa +
+                  3 * SQUARE(norms(f, A)) * norms(f, B) * Paab +
+                  3 * norms(f, A) * SQUARE(norms(f, B)) * Pabb +
+                  CUBE(norms(f, B)) * Pbbb +
+                  3 * SQUARE(norms(f, A)) * w(f) * Paa +
+                  3 * SQUARE(norms(f, B)) * w(f) * Pbb +
+                  6 * norms(f, A) * w(f) * norms(f, B) * Pab +
+                  3 * norms(f, A) * SQUARE(w(f)) * Pa +
+                  3 * norms(f, B) * SQUARE(w(f)) * Pb +
+                  CUBE(w(f)) * P1);
 
     Faab = k1 * Paab;
-    Fbbc = -k2 * (norms(f, A)*Pabb + norms(f, B)*Pbbb + w(f)*Pbb);
-    Fcca = k3 * (SQR(norms(f, A))*Paaa + 2*norms(f, A)*norms(f, B)*Paab + SQR(norms(f, B))*Pabb
-           + w(f)*(2*(norms(f, A)*Paa + norms(f, B)*Pab) + w(f)*Pa));
+    Fbbc = -k2 * (norms(f, A) * Pabb + norms(f, B) * Pbbb + w(f) * Pbb);
+    Fcca = k3 * (SQUARE(norms(f, A)) * Paaa +
+                 2 * norms(f, A) * norms(f, B) * Paab +
+                 SQUARE(norms(f, B))*Pabb +
+                 2 * norms(f, A) * w(f) * Paa +
+                 2 * norms(f, B) * w(f) * Pab +
+                 SQUARE(w(f)) * Pa);
 }
 
 void RigidBodyTemplate::computeNorms() {
@@ -220,14 +230,24 @@ void RigidBodyTemplate::computeCOM() {
 
         Fa = k1 * Pa;
         Fb = k1 * Pb;
-        Fc = -k2 * (norms(i, A)*Pa + norms(i, B)*Pb + w(i)*P1);
+        Fc = -k2 * (norms(i, A) * Pa + norms(i, B) * Pb + w(i) * P1);
 
         Faa = k1 * Paa;
         Fbb = k1 * Pbb;
-        Fcc = k3 * (SQR(norms(i, A))*Paa + 2*norms(i, A)*norms(i, B)*Pab + SQR(norms(i, B))*Pbb
-              + w(i)*(2*(norms(i, A)*Pa + norms(i, B)*Pb) + w(i)*P1));
+        Fcc = k3 * (SQUARE(norms(i, A)) * Paa +
+                    2 * norms(i, A) * norms(i, B) * Pab +
+                    SQUARE(norms(i, B)) * Pbb +
+                    2 * w(i) * norms(i, A) * Pa +
+                    2 * w(i) * norms(i, B) * Pb +
+                    SQUARE(w(i)) * P1);
 
-        T0 += norms(i, X) * ((A == X) ? Fa : ((B == X) ? Fb : Fc));
+        if (A == X) {
+            T0 += norms(i, A) * Fa;
+        } else if (B == X) {
+            T0 += norms(i, B) * Fb;
+        } else {
+            T0 += norms(i, C) * Fc;
+        }
 
         T1[A] += norms(i, A) * Faa;
         T1[B] += norms(i, B) * Fbb;
@@ -255,38 +275,34 @@ void RigidBodyTemplate::computeIntegrals() {
 
         computeFaceIntegrals(i);
 
-        T0 += norms(i, X) * ((A == X) ? Fa : ((B == X) ? Fb : Fc));
+        if (A == X) {
+            T0 += norms(i, A) * Fa;
+        } else if (B == X) {
+            T0 += norms(i, B) * Fb;
+        } else {
+            T0 += norms(i, C) * Fc;
+        }
 
         T1[A] += norms(i, A) * Faa;
         T1[B] += norms(i, B) * Fbb;
         T1[C] += norms(i, C) * Fcc;
+        // Taa
         T2[A] += norms(i, A) * Faaa;
+        // Tbb
         T2[B] += norms(i, B) * Fbbb;
+        // Tcc
         T2[C] += norms(i, C) * Fccc;
+        // Tab
         TP[A] += norms(i, A) * Faab;
+        // Tbc
         TP[B] += norms(i, B) * Fbbc;
+        // Tac
         TP[C] += norms(i, C) * Fcca;
     }
 
     T1[X] /= 2; T1[Y] /= 2; T1[Z] /= 2;
     T2[X] /= 3; T2[Y] /= 3; T2[Z] /= 3;
     TP[X] /= 2; TP[Y] /= 2; TP[Z] /= 2;
-
-/*
-  printf("\nT1 =   %+20.6f\n\n", T0);
-
-  printf("Tx =   %+20.6f\n", T1[X]);
-  printf("Ty =   %+20.6f\n", T1[Y]);
-  printf("Tz =   %+20.6f\n\n", T1[Z]);
-  
-  printf("Txx =  %+20.6f\n", T2[X]);
-  printf("Tyy =  %+20.6f\n", T2[Y]);
-  printf("Tzz =  %+20.6f\n\n", T2[Z]);
-
-  printf("Txy =  %+20.6f\n", TP[X]);
-  printf("Tyz =  %+20.6f\n", TP[Y]);
-  printf("Tzx =  %+20.6f\n\n", TP[Z]);
-*/
 }
 
 void RigidBodyTemplate::initialize()
@@ -306,12 +322,12 @@ void RigidBodyTemplate::initialize()
     computeCOM();
 
     volume_ = T0;
-    std::cout << "V=" << volume_ << "\n";
+    // std::cout << "V=" << volume_ << "\n";
 
     c(X) = T1[X] / volume_;
     c(Y) = T1[Y] / volume_;
     c(Z) = T1[Z] / volume_;
-    std::cout << "C=[\n" << c << "]\n";
+    // std::cout << "C=[\n" << c << "]\n";
 
     for (int i = 0; i < numVerts; i++) {
         V(i, X) -= c(X);
@@ -329,5 +345,5 @@ void RigidBodyTemplate::initialize()
     inertiaTensor_(Y, Z) = inertiaTensor_(Z, Y) = - TP[Y];
     inertiaTensor_(Z, X) = inertiaTensor_(X, Z) = - TP[Z];
 
-    std::cout << "inertiaTensor_=\n" << inertiaTensor_ << "\n";
+    // std::cout << "inertiaTensor_=\n" << inertiaTensor_ << "\n";
 }    
