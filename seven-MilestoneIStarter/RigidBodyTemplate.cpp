@@ -69,13 +69,9 @@ void RigidBodyTemplate::computeCOMProjectionIntegrals(int f)
     P1 /= 2.0;
     Pa /= 6.0;
     Paa /= 12.0;
-    Paaa /= 20.0;
     Pb /= -6.0;
     Pbb /= -12.0;
-    Pbbb /= -20.0;
     Pab /= 24.0;
-    Paab /= 60.0;
-    Pabb /= -60.0;
 }
 
 void RigidBodyTemplate::computeProjectionIntegrals(int f)
