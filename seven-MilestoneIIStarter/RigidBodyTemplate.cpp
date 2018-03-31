@@ -265,9 +265,9 @@ Matrix3d RigidBodyTemplate::Tinv(int tet) const {
 
     Matrix3d T;
 
-    T << OA(0), OA(1), OA(2),
-         OB(0), OB(1), OB(2),
-         OC(0), OC(1), OC(2);
+    T << OA(0), OB(0), OC(0),
+         OA(1), OB(1), OC(1),
+         OA(2), OB(2), OC(2);
 
     return T.inverse();
 }
@@ -283,7 +283,7 @@ double RigidBodyTemplate::distance(Vector3d p, int tet) const
 
     Vector3d OP = p - O;
     Vector3d aby = Tinv(tet) * OP;
-    std::cout << "a,b,y = [\n" << aby << "]\n";
+    // std::cout << "a,b,y = [\n" << aby << "]\n";
 
     double Da = distances[a];
     double Db = distances[b];

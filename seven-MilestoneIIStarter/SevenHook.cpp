@@ -117,6 +117,47 @@ void SevenHook::computeForces(VectorXd &Fc, VectorXd &Ftheta)
     }
 }
 
+void SevenHook::computePenaltyForces(VectorXd &Fc, VectorXd &Ftheta, std::set<Collision> &collisions)
+{
+    for (auto &collision : collisions) {
+        int i = collision.body2, j = collision.body1;
+        RigidBodyInstance *Bj = bodies_[j];
+        RigidBodyInstance *Bi = bodies_[i];
+        Vector3d Vj = Bj->getTemplate().getVerts().row(collision.collidingVertex);
+        Matrix3d Ri = VectorMath::rotationMatrix(Bi->theta);
+        Matrix3d RiT = Ri.transpose();
+        Matrix3d Rj = VectorMath::rotationMatrix(Bj->theta);
+        Vector3d Ci = Bi->c;  // q_i
+        Vector3d Cj = Bj->c;  // q_j
+        Vector3d Vj_q = Rj * Vj + Cj;
+        Vector3d Vj_i = RiT * (Vj_q - Ci);
+        int teti = collision.collidingTet;
+        double D = Bi->getTemplate().distance(Vj_i, teti);
+        Vector3d dD = Bi->getTemplate().Ddistance(teti);
+        // V(qi, qj) = k/2 * D(Ri^T * (Rj * Vj + qj - qi))^2;
+        // dV(qi, qj, 0i, 0j){qj} = k * D(Ri^T * (Rj * Vj + qj - qi)) * dD(Ri^T * (Rj * Vj + qj - qi)) * Ri^T
+        // dRot(0j)Vj{0j} = -Rj * [Vj]x * T(0j)
+        // dV(qi, qj, 0i, 0j){0j} = k * D(Ri^T * (Rj * Vj + qj - qi)) * dD(Ri^T * (Rj * Vj + qj - qi)) * Ri^T * dRot(0j)Vj{0j}
+        // Vt = Rj * Vj + qj - qi
+        // dRotT(0i)Vt{0i} = dRot(-0i)Vt{0i}
+        //                 = -Rot(-0i) * [Vt]x * T(-0i) * -1
+        //                 = RiT * [Vt]x * T(-0i)
+        // dV(qi, qj, 0i, 0j){0i} = k * D(Ri^T * Vt) * dD(Ri^T * Vt) * dRotT(0i)Vt{0i}
+        // std::cout << "dD = " << dD << "\n";
+        Vector3d Fj = -params_.penaltyStiffness * D * Ri * dD;
+        Fc.segment<3>(3*j) += Fj;
+        Fc.segment<3>(3*i) -= Fj;
+
+        Matrix3d dRjVj = -1.0 * Rj * VectorMath::crossProductMatrix(Vj) * VectorMath::TMatrix(Bj->theta);
+        Vector3d F0j = -params_.penaltyStiffness * D * dRjVj.transpose() * Ri * dD;
+        Vector3d Vt = Rj * Vj + Cj - Ci;
+        Matrix3d dRiTVt = RiT * VectorMath::crossProductMatrix(Vt) * VectorMath::TMatrix(-Bi->theta);
+        Vector3d F0i = -params_.penaltyStiffness * D * dRiTVt.transpose() * dD;
+        Ftheta.segment<3>(3*i) += F0i;
+        Ftheta.segment<3>(3*j) += F0j;
+    }
+}
+
 bool SevenHook::simulateOneStep()
 {   
     time_ += params_.timeStep;
@@ -149,6 +190,11 @@ bool SevenHook::simulateOneStep()
     computeForces(cForce, thetaForce);
     
     // TODO compute and add penalty forces
+    if (params_.penaltyEnabled) {
+        computePenaltyForces(cForce, thetaForce, collisions);
+    }
+
+
     // TODO apply collision impulses
     
     for(int bodyidx=0; bodyidx < (int)bodies_.size(); bodyidx++)
@@ -175,7 +221,7 @@ bool SevenHook::simulateOneStep()
             Vector3d deltaw = Df.inverse() * (-fval);
             newwguess += deltaw;
         }
-        std::cout << "Converged in " << iter << " Newton iterations" << std::endl;
+        // std::cout << "Converged in " << iter << " Newton iterations" << std::endl;
         body.w = newwguess;
     }
 

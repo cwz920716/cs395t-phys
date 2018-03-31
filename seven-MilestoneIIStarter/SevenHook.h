@@ -39,7 +39,8 @@ public:
 
 private:
     void loadScene();
-    void computeForces(Eigen::VectorXd &Fc, Eigen::VectorXd &Ftheta);    
+    void computeForces(Eigen::VectorXd &Fc, Eigen::VectorXd &Ftheta);
+    void computePenaltyForces(Eigen::VectorXd &Fc, Eigen::VectorXd &Ftheta, std::set<Collision> &collisions);    
 
     double time_;
     SimParameters params_;
