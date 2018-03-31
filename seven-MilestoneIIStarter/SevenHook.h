@@ -14,7 +14,8 @@ class RigidBodyInstance;
 class SevenHook : public PhysicsHook
 {
 public:
-    SevenHook() : PhysicsHook(), sceneFile_("box.scn") {}
+    // Do not forget to change back
+    SevenHook() : PhysicsHook(), sceneFile_("1.scn") {}
 
     virtual void drawGUI(igl::opengl::glfw::imgui::ImGuiMenu &menu);
 

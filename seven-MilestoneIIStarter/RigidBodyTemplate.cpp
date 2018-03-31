@@ -249,15 +249,79 @@ void RigidBodyTemplate::computeDistances()
     }
 }
 
+Matrix3d RigidBodyTemplate::Tinv(int tet) const {
+    int o = T(tet, 0);
+    int a = T(tet, 1);
+    int b = T(tet, 2);
+    int c = T(tet, 3);
+    Vector3d O = V.row(o);
+    Vector3d A = V.row(a);
+    Vector3d B = V.row(b);
+    Vector3d C = V.row(c);
+
+    Vector3d OA = A - O;
+    Vector3d OB = B - O;
+    Vector3d OC = C - O;
+
+    Matrix3d T;
+
+    T << OA(0), OA(1), OA(2),
+         OB(0), OB(1), OB(2),
+         OC(0), OC(1), OC(2);
+
+    return T.inverse();
+}
+
 double RigidBodyTemplate::distance(Vector3d p, int tet) const
 {
     // TODO compute distance from point to object boundary
-    return 0;
+    int o = T(tet, 0);
+    int a = T(tet, 1);
+    int b = T(tet, 2);
+    int c = T(tet, 3);
+    Vector3d O = V.row(o);
+
+    Vector3d OP = p - O;
+    Vector3d aby = Tinv(tet) * OP;
+    std::cout << "a,b,y = [\n" << aby << "]\n";
+
+    double Da = distances[a];
+    double Db = distances[b];
+    double Dc = distances[c];
+    double Do = distances[o];
+    double alpha = aby(0), beta = aby(1), gamma = aby(2);
+    double d = Do + alpha * (Da - Do) + beta * (Db - Do) + gamma * (Dc - Do);
+    return d;
 }
 
 Vector3d RigidBodyTemplate::Ddistance(int tet) const
 {
     //TODO: compute derivative of distance from point to boundary
+    int o = T(tet, 0);
+    int a = T(tet, 1);
+    int b = T(tet, 2);
+    int c = T(tet, 3);
+
+    double Da = distances[a];
+    double Db = distances[b];
+    double Dc = distances[c];
+    double Do = distances[o];
+
+    double Doa = Da - Do;
+    double Dob = Db - Do;
+    double Doc = Dc - Do;
+    Vector3d D(Doa, Dob, Doc);
+
+    Matrix3d M = Tinv(tet);
+    Vector3d dxM = M.col(0);
+    Vector3d dyM = M.col(1);
+    Vector3d dzM = M.col(2);
+
     Vector3d result(0, 0, 0);
+
+    result(0) = dxM.dot(D);
+    result(1) = dyM.dot(D);
+    result(2) = dzM.dot(D);
+
     return result;
 }

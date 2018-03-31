@@ -36,6 +36,7 @@ private:
     Eigen::Vector3d computeCenterOfMass();
     void computeInertiaTensor();
     void computeDistances();
+    Eigen::Matrix3d Tinv(int tet) const;
     
     Eigen::MatrixX3d V;
     Eigen::MatrixX3i F;
