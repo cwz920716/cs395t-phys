@@ -133,6 +133,7 @@ void SevenHook::computePenaltyForces(VectorXd &Fc, VectorXd &Ftheta, std::set<Co
         Vector3d Vj_i = RiT * (Vj_q - Ci);
         int teti = collision.collidingTet;
         double D = Bi->getTemplate().distance(Vj_i, teti);
+        // std::cout << "D = " << D << "\n";
         Vector3d dD = Bi->getTemplate().Ddistance(teti);
         // V(qi, qj) = k/2 * D(Ri^T * (Rj * Vj + qj - qi))^2;
         // dV(qi, qj, 0i, 0j){qj} = k * D(Ri^T * (Rj * Vj + qj - qi)) * dD(Ri^T * (Rj * Vj + qj - qi)) * Ri^T
@@ -155,6 +156,118 @@ void SevenHook::computePenaltyForces(VectorXd &Fc, VectorXd &Ftheta, std::set<Co
         Vector3d F0i = -params_.penaltyStiffness * D * dRiTVt.transpose() * dD;
         Ftheta.segment<3>(3*i) += F0i;
         Ftheta.segment<3>(3*j) += F0j;
+    }
+}
+
+double SevenHook::relv(int i, int j, int k, int tet, double *dist)
+{
+    RigidBodyInstance *Bj = bodies_[j];
+    RigidBodyInstance *Bi = bodies_[i];
+    Vector3d Vj = Bj->getTemplate().getVerts().row(k);
+    Matrix3d Ri = VectorMath::rotationMatrix(Bi->theta);
+    Matrix3d RiT = Ri.transpose();
+    Matrix3d Rj = VectorMath::rotationMatrix(Bj->theta);
+    Vector3d Ci = Bi->c;  // q_i
+    Vector3d Cj = Bj->c;  // q_j
+    Vector3d Vj_q = Rj * Vj + Cj;
+    Vector3d Vj_i = RiT * (Vj_q - Ci);
+    double D = Bi->getTemplate().distance(Vj_i, tet);
+    // std::cout << "D = " << D << "\n";
+    if (dist != nullptr) {
+        *dist = D;
+    }
+
+    Vector3d dDj = Ri * Bi->getTemplate().Ddistance(tet);
+    // std::cout << "dDj = \n" << dDj << "\n";
+    Vector3d dDi = -dDj;
+    // std::cout << "dDi = \n" << dDi << "\n";
+
+    // Should I add component for w?
+    double v = dDj.dot(Bj->cvel) + dDi.dot(Bi->cvel);
+    // std::cout << "Vj = \n" << Bj->cvel << "\n";
+    // std::cout << "Vi = \n" << Bi->cvel << "\n";
+    
+    // std::cout << "v = " << v << "\n";
+    return v;
+}
+
+Vector3d SevenHook::dg_c_j(int i, int j, int k, int tet)
+{
+    RigidBodyInstance *Bj = bodies_[j];
+    RigidBodyInstance *Bi = bodies_[i];
+    Vector3d Vj = Bj->getTemplate().getVerts().row(k);
+    Matrix3d Ri = VectorMath::rotationMatrix(Bi->theta);
+    Matrix3d RiT = Ri.transpose();
+    Matrix3d Rj = VectorMath::rotationMatrix(Bj->theta);
+    Vector3d Ci = Bi->c;  // q_i
+    Vector3d Cj = Bj->c;  // q_j
+    Vector3d Vj_q = Rj * Vj + Cj;
+    Vector3d Vj_i = RiT * (Vj_q - Ci);
+    // double D = Bi->getTemplate().distance(Vj_i, tet);
+
+    Vector3d dDj = Ri * Bi->getTemplate().Ddistance(tet);
+    return dDj;
+}
+
+void SevenHook::applyImpulses(std::set<Collision> &collisions)
+{
+    std::map<int, std::map<int, double> > dist;
+    std::map<int, std::map<int, Collision> > pairs;
+    for (auto &collision : collisions) {
+        int i = collision.body2, j = collision.body1;
+        int k = collision.collidingVertex, tet = collision.collidingTet;
+        double d = 0;
+        double v = relv(i, j, k, tet, &d);
+        if (v >= 0) continue;
+
+        int a = (i < j) ? i : j;
+        int b = (i < j) ? j : i;
+
+        bool insert = true;
+        if (pairs.count(a) > 0 &&
+            pairs[a].count(b) > 0) {
+            if (dist[a][b] < d) {
+                insert = false;
+            }
+        }
+
+        if (insert) {
+            // std::cout << "found collision " << j << "," << i << "\n";
+            pairs[a][b] = collision;
+            dist[a][b] = d;
+        }
+    }
+
+    for (auto &p : pairs) {
+        auto &cols = p.second;
+        for (auto &c : cols) {
+            const Collision &collision = c.second;
+            // Handle collisionDetection
+            int i = collision.body2, j = collision.body1;
+            int k = collision.collidingVertex, tet = collision.collidingTet;
+            RigidBodyInstance *Bj = bodies_[j];
+            RigidBodyInstance *Bi = bodies_[i];
+            Vector3d Vj = Bj->getTemplate().getVerts().row(k);
+            Matrix3d Ri = VectorMath::rotationMatrix(Bi->theta);
+            Matrix3d RiT = Ri.transpose();
+            Matrix3d Rj = VectorMath::rotationMatrix(Bj->theta);
+            Vector3d Ci = Bi->c;  // q_i
+            Vector3d Cj = Bj->c;  // q_j
+            Vector3d Vj_q = Rj * Vj + Cj;
+            Vector3d Vj_i = RiT * (Vj_q - Ci);
+            double Mj = Bj->density * Bj->getTemplate().getVolume();
+            double Mi = Bi->density * Bi->getTemplate().getVolume();
+            Vector3d dg_j = dg_c_j(i, j, k, tet);
+            Vector3d dg_i = -dg_j;
+            double v = relv(i, j, k, tet, nullptr);
+            double alpha = -1.0 * (1 + params_.CoR) * v / (dg_j.dot(dg_j) / Mj + dg_i.dot(dg_i) / Mi);
+            Bj->cvel += alpha * dg_j / Mj;
+            Bi->cvel += alpha * dg_i / Mi;
+            auto MIj_inv = Bj->getTemplate().getInertiaTensor().inverse() / Bj->density;
+            auto MIi_inv = Bi->getTemplate().getInertiaTensor().inverse() / Bi->density;
+            Bj->w += MIj_inv * VectorMath::crossProductMatrix(Vj) * Rj.transpose() * alpha * dg_j;
+            Bi->w += MIi_inv * VectorMath::crossProductMatrix(Vj_i) * Ri.transpose() * alpha * dg_i;
+        }
     }
 }
 
@@ -196,6 +309,9 @@ bool SevenHook::simulateOneStep()
 
 
     // TODO apply collision impulses
+    if (params_.impulsesEnabled) {
+        applyImpulses(collisions);
+    }
     
     for(int bodyidx=0; bodyidx < (int)bodies_.size(); bodyidx++)
     {        

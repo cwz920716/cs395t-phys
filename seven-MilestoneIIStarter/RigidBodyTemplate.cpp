@@ -245,7 +245,7 @@ void RigidBodyTemplate::computeDistances()
                 dist = min(dist, distvec.norm());
             }
         }
-        distances[i] = dist;        
+        distances[i] = -dist;        
     }
 }
 

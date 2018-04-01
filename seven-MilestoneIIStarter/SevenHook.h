@@ -41,6 +41,9 @@ private:
     void loadScene();
     void computeForces(Eigen::VectorXd &Fc, Eigen::VectorXd &Ftheta);
     void computePenaltyForces(Eigen::VectorXd &Fc, Eigen::VectorXd &Ftheta, std::set<Collision> &collisions);    
+    void applyImpulses(std::set<Collision> &collisions);
+    double relv(int i, int j, int k, int tet, double *dist);
+    Eigen::Vector3d dg_c_j(int i, int j, int k, int tet);
 
     double time_;
     SimParameters params_;
