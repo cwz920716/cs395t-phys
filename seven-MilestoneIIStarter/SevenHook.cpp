@@ -82,12 +82,100 @@ void SevenHook::initSimulation()
     updateRenderGeometry();
 }
 
+void SevenHook::explode(int body)
+{
+    if (params_.destroyPieces <= 0) return;
+
+    std::vector<Vector3d> vs;
+    std::map<int, int> pieceMap;
+    for (int i = 0; i < params_.destroyPieces; i++) {
+        Vector3d vi = VectorMath::randomPointOnSphere();
+        // vi.normalize();
+        // std::cout << "explode vi: " << vi << "\n";
+        vs.push_back(vi);
+    }
+
+    RigidBodyInstance *B = bodies_[body];
+    auto T = B->getTemplate().getTets();
+    auto V = B->getTemplate().getVerts();
+    for (int i = 0; i < T.rows(); i++) {
+        auto cm = B->getTemplate().tetrahedronCOM(i);
+        // std::cout << "cm : " << cm << "\n";
+        double max = cm.dot(vs[0]);
+        pieceMap[i] = 0;
+        for (int j = 1; j < params_.destroyPieces; j++) {
+            if (cm.dot(vs[j]) > max) {
+                max = cm.dot(vs[j]);
+                pieceMap[i] = j;
+            }
+        }
+    }
+
+    for (int i = 0; i < params_.destroyPieces; i++) {
+        std::vector<Vector3d> verts;
+        std::map<int, int> v_map;
+        std::vector<Vector4i> tets;
+        for (int j = 0; j < T.rows(); j++) {
+            if (pieceMap[j] != i) continue;
+
+            // std::cout << "assign " << j << "->" << " new body " << i << "\n";
+
+            Vector4i new_tet;
+            for (int k = 0; k < 4; k++) {
+                int Kid = T(j, k);
+                Vector3d K = V.row(Kid);
+                if (v_map.count(Kid) == 0) {
+                    v_map[Kid] = verts.size();
+                    verts.push_back(K);
+                }
+                new_tet(k) = v_map[Kid];
+            }
+            tets.push_back(new_tet);
+        }
+
+        int ntet = tets.size();
+        int nvert = verts.size();
+        if (ntet == 0) continue;
+
+        MatrixX4i Mtet(ntet, 4);
+        MatrixX3d Mvert(nvert, 3);
+
+        for (int j = 0; j < nvert; j++) {
+            Mvert.row(j) = verts[j];
+        }
+
+        for (int j = 0; j < ntet; j++) {
+            Mtet.row(j) = tets[j];
+        }
+
+        RigidBodyTemplate *rbt = new RigidBodyTemplate(Mvert, Mtet);
+        auto cm = rbt->getUnmodifiedCM();
+        templates_.push_back(rbt);
+        // TODO: theta is not initilized properly!
+        RigidBodyInstance *rbi = new RigidBodyInstance(*rbt, B->c + cm, B->theta, B->cvel, B->w, B->density);
+        bodies_.push_back(rbi);
+
+        Vector3d J = params_.explosionMag * VectorMath::rotationMatrix(B->theta) * vs[i];
+        rbi->cvel += J / (rbi->density * rbt->getVolume());
+        Matrix3d MI_inv = rbt->getInertiaTensor().inverse() / rbi->density;
+        rbi->w += VectorMath::crossProductMatrix(-cm) * VectorMath::rotationMatrix(B->theta) * J;
+    }
+
+    auto rbt_id = std::find(templates_.begin(), templates_.end(), &B->getTemplate());
+    delete *rbt_id;
+    templates_.erase(rbt_id);
+    auto rbi_id = std::find(bodies_.begin(), bodies_.end(), B);
+    delete *rbi_id;
+    bodies_.erase(rbi_id);
+}
+
 void SevenHook::tick()
 {    
     destroyMutex_.lock();
     for(int body : destroyCommands_)        
     { 
         //TODO destroy object "body"
+        explode(body);
     }
     destroyCommands_.clear();
     destroyMutex_.unlock();

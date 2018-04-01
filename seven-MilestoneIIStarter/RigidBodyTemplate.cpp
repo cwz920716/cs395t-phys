@@ -33,6 +33,14 @@ RigidBodyTemplate::RigidBodyTemplate(const Eigen::MatrixX3d &verts, const Eigen:
     initialize();
 }
 
+RigidBodyTemplate::RigidBodyTemplate(const Eigen::MatrixX3d &verts, const Eigen::MatrixX4i &tets, bool fast) : volume_(0)
+{
+    V = verts;
+    T = tets;
+    computeFaces();
+    computeVolume();
+}
+
 RigidBodyTemplate::~RigidBodyTemplate()
 {    
 }
@@ -41,6 +49,7 @@ void RigidBodyTemplate::initialize()
 {
     computeVolume();
     Vector3d cm = computeCenterOfMass();
+    old_cm_ = cm;
     for(int i=0; i<V.rows(); i++)
         V.row(i) -= cm;
 
@@ -247,6 +256,28 @@ void RigidBodyTemplate::computeDistances()
         }
         distances[i] = -dist;        
     }
+}
+
+Vector3d RigidBodyTemplate::tetrahedronCOM(int tet) const {
+    Eigen::MatrixX3d verts(4, 3);
+    Eigen::MatrixX4i tets(1, 4);
+    int o = T(tet, 0);
+    int a = T(tet, 1);
+    int b = T(tet, 2);
+    int c = T(tet, 3);
+    int vs[] = {o, a, b, c};
+
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 3; j++) {
+            verts(i, j) = V(vs[i], j);
+        }
+    }
+
+    for (int i = 0; i < 4; i++)
+        tets(0, i) = i;
+
+    RigidBodyTemplate t(verts, tets, true);
+    return t.computeCenterOfMass();
 }
 
 Matrix3d RigidBodyTemplate::Tinv(int tet) const {

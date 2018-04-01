@@ -14,8 +14,7 @@ class RigidBodyInstance;
 class SevenHook : public PhysicsHook
 {
 public:
-    // Do not forget to change back
-    SevenHook() : PhysicsHook(), sceneFile_("1.scn") {}
+    SevenHook() : PhysicsHook(), sceneFile_("box.scn") {}
 
     virtual void drawGUI(igl::opengl::glfw::imgui::ImGuiMenu &menu);
 
@@ -44,6 +43,7 @@ private:
     void applyImpulses(std::set<Collision> &collisions);
     double relv(int i, int j, int k, int tet, double *dist);
     Eigen::Vector3d dg_c_j(int i, int j, int k, int tet);
+    void explode(int body);
 
     double time_;
     SimParameters params_;
