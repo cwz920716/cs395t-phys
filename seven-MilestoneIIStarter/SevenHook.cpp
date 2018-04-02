@@ -152,7 +152,11 @@ void SevenHook::explode(int body)
         auto cm = rbt->getUnmodifiedCM();
         templates_.push_back(rbt);
         // TODO: theta is not initilized properly!
-        RigidBodyInstance *rbi = new RigidBodyInstance(*rbt, B->c + cm, B->theta, B->cvel, B->w, B->density);
+        RigidBodyInstance *rbi = new RigidBodyInstance(*rbt, 
+                                        B->c + VectorMath::rotationMatrix(B->theta) * cm, 
+                                        B->theta,
+                                        B->cvel - VectorMath::rotationMatrix(B->theta) * VectorMath::crossProductMatrix(cm) * B->w,
+                                        B->w, B->density);
         bodies_.push_back(rbi);
 
         Vector3d J = params_.explosionMag * VectorMath::rotationMatrix(B->theta) * vs[i];
