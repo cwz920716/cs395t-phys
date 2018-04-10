@@ -1,6 +1,7 @@
 #include "ClothHook.h"
 #include <limits>
 #include <map>
+#include <set>
 #include <igl/unproject_onto_mesh.h>
 
 ClothHook::ClothHook() : PhysicsHook() 
@@ -224,7 +225,75 @@ void ClothHook::initSimulation()
         // std::cout << "C0[i] = " << C0.block<1, 3>(i, 0) << "\n";
     }
 
-    
+    // find all possible quads and their center
+    std::map<int, std::map<int, std::set<int> > > maybe_quads;
+    for (int i = 0; i < F.rows(); i++) {
+        int a_ = F(i, 0), b_ = F(i, 1), c_ = F(i, 2);
+
+        int a, b, c;
+        if (a_ < b_ && a_ < c_) {
+            a = a_;
+            b = (b_ < c_) ? b_ : c_;
+            c = (b_ < c_) ? c_ : b_;
+        } else if (b_ < c_) {
+            a = b_;
+            b = (a_ < c_) ? a_ : c_;
+            c = (a_ < c_) ? c_ : a_;
+        } else {
+            a = c_;
+            b = (b_ < a_) ? b_ : a_;
+            c = (b_ < a_) ? a_ : b_;
+        }
+
+        maybe_quads[a][b].insert(c);
+        maybe_quads[b][c].insert(a);
+        maybe_quads[a][c].insert(b);
+    }
+
+    std::vector<Eigen::Vector4d> quads_vec;
+    for (auto &i1 : maybe_quads) {
+        for (auto &i2 : i1.second) {
+            auto &rem = i2.second;
+            if (rem.size() > 2) {
+                std::cout << "edge connect more than 2 tris\n";
+            }
+            if (rem.size() == 2) {
+                Vector4d q;
+                q(0) = i1.first;
+                q(1) = i2.first;
+                int id = 2;
+                for (int x : rem) {
+                    q(id++) = x;
+                }
+                quads_vec.push_back(q);
+                // std::cout << "found quad \n" << q << "\n";
+            }
+        }
+    }
+
+    Quads.resize(quads_vec.size(), 4);
+    QC0.resize(quads_vec.size(), 3);
+    for (int i = 0; i < Quads.rows(); i++) {
+        for (int j = 0; j < 4; j++) {
+            Quads(i, j) = quads_vec[i](j);
+        }
+
+        int a = Quads(i, 0), b = Quads(i, 1), c = Quads(i, 2), d = Quads(i, 3);
+        Eigen::Vector3d A, B, C, D;
+        for (int j = 0; j < 3; j++) {
+            A(j) = origQ(a, j);
+            B(j) = origQ(b, j);
+            C(j) = origQ(c, j);
+            D(j) = origQ(d, j);
+        }
+
+        Eigen::Vector3d center = (A + B + C + D) / 4.0;
+        for (int j = 0; j < 3; j++) {
+            QC0(i, j) = center(j);
+        }
+    }
+    std::cout << "Quads=[" << Quads.rows() << ", " << Quads.cols() << "]\n";
+    std::cout << "QC0=[" << QC0.rows() << ", " << QC0.cols() << "]\n";
 }
 
 SpMat ClothHook::selector(int i)
@@ -249,8 +318,62 @@ SpMat ClothHook::selectorT(int i)
     return S.transpose();
 }
 
+void ClothHook::applyBending(Eigen::VectorXd &q) {
+    for (int i = 0; i < Quads.rows(); i++) {
+        int x0 = Quads(i, 0), x1 = Quads(i, 1), x2 = Quads(i, 2), x3 = Quads(i, 3);
+        Eigen::Vector3d X0, X1, X2, X3, center0, O0, O1, O2, O3;
+        for (int j = 0; j < 3; j++) {
+            X0(j) = q(3 * x0 + j);
+            X1(j) = q(3 * x1 + j);
+            X2(j) = q(3 * x2 + j);
+            X3(j) = q(3 * x3 + j);
+            center0(j) = QC0(i, j);
+            O0(j) = origQ(x0, j);
+            O1(j) = origQ(x1, j);
+            O2(j) = origQ(x2, j);
+            O3(j) = origQ(x3, j);
+        }
+        // std::cout << "X0 = [" << X0 << "]\n";
+        // std::cout << "X1 = [" << X1 << "]\n";
+        // std::cout << "X2 = [" << X2 << "]\n";
+        Eigen::Vector3d center = (X0 + X1 + X2 + X3) / 4.0;
+        // std::cout << "c0 = " << center0 << "\n";
+        // std::cout << "c0' = " << center << "\n";
+        Eigen::Vector3d T0 = center - center0;
+        // std::cout << "Trans = [" << T0.norm() << "]\n";
+
+        Eigen::MatrixX4d A(3, 4), B(3, 4);
+        A.block<3, 1>(0, 0) = X0 - center;
+        A.block<3, 1>(0, 1) = X1 - center;
+        A.block<3, 1>(0, 2) = X2 - center;
+        A.block<3, 1>(0, 3) = X3 - center;
+        B.block<3, 1>(0, 0) = O0 - center0;
+        B.block<3, 1>(0, 1) = O1 - center0;
+        B.block<3, 1>(0, 2) = O2 - center0;
+        B.block<3, 1>(0, 3) = O3 - center0;
+        // std::cout << "A = [" << A << "]\n";
+        // std::cout << "B = [" << B << "]\n";
+
+        Eigen::Matrix3d M = A * B.transpose();
+        JacobiSVD<Matrix3d> svd(M, ComputeFullU | ComputeFullV);
+        Matrix3d R = svd.matrixU() * svd.matrixV().transpose();
+        // std::cout << R << "\n for triangle " << i << "\n";
+        auto Px0 = R * (O0 - center0) + center;
+        auto Px1 = R * (O1 - center0) + center;
+        auto Px2 = R * (O2 - center0) + center;
+        auto Px3 = R * (O3 - center0) + center;
+
+        // projected[x0] = projected[x1] = projected[x2] = true;
+
+        q.segment<3>(3 * x0) = bendingWeight * Px0 + (1 - bendingWeight)  * q.segment<3>(3 * x0);
+        q.segment<3>(3 * x1) = bendingWeight * Px1 + (1 - bendingWeight)  * q.segment<3>(3 * x1);
+        q.segment<3>(3 * x2) = bendingWeight * Px2 + (1 - bendingWeight)  * q.segment<3>(3 * x2);
+        q.segment<3>(3 * x3) = bendingWeight * Px3 + (1 - bendingWeight)  * q.segment<3>(3 * x3);
+    }
+}
+
 void ClothHook::applyStretch(Eigen::VectorXd &q) {
-    std::map<int, bool> projected;
+    // std::map<int, bool> projected;
     for (int i = 0; i < F.rows(); i++) {
         int x0 = F(i, 0), x1 = F(i, 1), x2 = F(i, 2);
         Eigen::Vector3d X0, X1, X2, center0, O0, O1, O2;
@@ -283,7 +406,7 @@ void ClothHook::applyStretch(Eigen::VectorXd &q) {
         // std::cout << "B = [" << B << "]\n";
 
         auto M = A * B.transpose();
-        JacobiSVD<MatrixXd> svd(M, ComputeFullU | ComputeFullV);
+        JacobiSVD<Matrix3d> svd(M, ComputeFullU | ComputeFullV);
         Matrix3d R = svd.matrixU() * svd.matrixV().transpose();
         // std::cout << R << "\n for triangle " << i << "\n";
         auto Px0 = R * (O0 - center0) + center;
@@ -338,6 +461,10 @@ bool ClothHook::simulateOneStep()
             applyStretch(Qnext);
         }
         // std::cout << "|dq|=[" << (Qnext - coq).norm() << "]\n";
+
+        if (bendingEnabled) {
+            applyBending(Qnext);
+        }
 
         if (pullingEnabled && clickedVertex >= 0 && clickedVertex < Q.rows()) {
             Eigen::VectorXd Qproj = Qnext;

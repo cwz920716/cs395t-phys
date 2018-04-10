@@ -57,6 +57,8 @@ private:
     Eigen::MatrixXd Qdot;
     Eigen::MatrixXi F;
     Eigen::MatrixXd C0;
+    Eigen::MatrixXi Quads;
+    Eigen::MatrixXd QC0;
 
     float dt;
     int constraintIters;
@@ -71,6 +73,7 @@ private:
     SpMat selector(int i);
     SpMat selectorT(int i);
     void applyStretch(Eigen::VectorXd &Q);
+    void applyBending(Eigen::VectorXd &Q);
 
     bool stretchEnabled;
     float stretchWeight;
