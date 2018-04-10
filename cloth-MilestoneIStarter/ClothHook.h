@@ -1,6 +1,14 @@
 #include "PhysicsHook.h"
 #include <igl/readOBJ.h>
 #include <iostream>
+#include <Eigen/Sparse>
+#include <Eigen/StdVector>
+#include <Eigen/SVD>
+
+using namespace Eigen;
+
+typedef Eigen::SparseMatrix<double> SpMat; // declares a column-major sparse matrix type of double
+typedef Eigen::Triplet<double> T;
 
 struct MouseEvent
 {
@@ -48,6 +56,7 @@ private:
     Eigen::MatrixXd Q;
     Eigen::MatrixXd Qdot;
     Eigen::MatrixXi F;
+    Eigen::MatrixXd C0;
 
     float dt;
     int constraintIters;
@@ -56,6 +65,12 @@ private:
     float gravityG;
     bool pinEnabled;
     float pinWeight;
+
+    int pinTL, pinTR;
+    Eigen::Vector3d xTL, xTR;
+    SpMat selector(int i);
+    SpMat selectorT(int i);
+    void applyStretch(Eigen::VectorXd &Q);
 
     bool stretchEnabled;
     float stretchWeight;
