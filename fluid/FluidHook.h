@@ -30,10 +30,15 @@ public:
 
     virtual void updateRenderGeometry()
     {
+        if (dens == nullptr) {
+            std::cout << "Error: dens should never be nullptr!\n";
+            exit(0);
+        }
+
         for (int y = 0; y < faces_y; y++) {
             for (int x = 0; x < faces_x; x++) {
                 int fid = y * faces_x + x;
-                Vector3d c(0, 0, dens(y, x));
+                Vector3d c(0, 0, (*dens)(y, x));
                 renderC.block<1, 3>(fid * 2, 0) = c;
                 renderC.block<1, 3>(fid * 2 + 1, 0) = c;
             }
@@ -64,7 +69,15 @@ private:
         return Vector2i(x, y); 
     }
 
+    void get_sources_from_UI(MatrixXd &d);
+    void dens_step();
+    void diffuse(MatrixXd &d, MatrixXd &d0);
+    void add_source(MatrixXd &d, MatrixXd &d0);
+    void set_bnd(int b, MatrixXd &d);
+
     float dt;
+    float dens_intensity;
+    float diff;
     int constraintIters;
 
     bool gravityEnabled;
@@ -80,7 +93,8 @@ private:
     double clickedz;
     Eigen::Vector3d curPos, clickedPos; // the current position of the mouse cursor in 3D
 
-    Eigen::MatrixXd dens;
+    Eigen::MatrixXd dens_data0, dens_data1;
+    MatrixXd *dens, *dens_prev;
 
     int verts, verts_x, verts_y;
     int faces, faces_x, faces_y;

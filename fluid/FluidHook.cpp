@@ -10,17 +10,31 @@ FluidHook::FluidHook() : PhysicsHook()
     released = false;
 
     dt = 1e-3;
-    constraintIters = 5;
+    dens_intensity = 100;
+    constraintIters = 2000;
+
+    diff = 1.0;
 
     gravityEnabled = true;
     gravityG = -9.8;
+
+    dens_prev = &dens_data0;
+    dens = &dens_data1;
 }
+
+#define SWAP(a, b) \
+do {\
+    auto tmp = a; \
+    a = b; \
+    b = tmp; \
+} while(0)
 
 void FluidHook::drawGUI(igl::opengl::glfw::imgui::ImGuiMenu &menu)
 {
     if (ImGui::CollapsingHeader("Simulation Options", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::InputFloat("Timestep", &dt, 0, 0, 3);        
+        ImGui::InputFloat("Add Dense Intensity", &dens_intensity, 0, 0, 3);        
         ImGui::InputInt("Constraint Iters", &constraintIters);
     }
     if (ImGui::CollapsingHeader("Forces", ImGuiTreeNodeFlags_DefaultOpen))
@@ -80,7 +94,7 @@ bool FluidHook::mouseClicked(igl::opengl::glfw::Viewer &viewer, int button)
     else
     {
         me.type = MouseEvent::ME_RELEASED;
-        ret = false;
+        ret = true;
     }       
     render_mutex.unlock();
 
@@ -145,7 +159,7 @@ void FluidHook::tick()
 
 void FluidHook::initSimulation()
 {
-    N = 100;
+    N = 10;
     width = 3.0 / N;
 
     verts_x = N + 3;
@@ -185,19 +199,35 @@ void FluidHook::initSimulation()
         }
     }
 
-    dens.resize(faces_y, faces_x);
-    dens.setZero();
+    dens_data0.resize(faces_y, faces_x);
+    dens_data0.setZero();
+
+    dens_data1.resize(faces_y, faces_x);
+    dens_data0.setZero();
 
     renderC.resize(faces, 3);
     renderC.setZero();
     
+    // weird init cond.
+    (*dens_prev)(N/2, N/2) = 100;
 }
 
-bool FluidHook::simulateOneStep()
-{
-    // TODO: time integration
+void FluidHook::dens_step() {
+    add_source(*dens, *dens_prev);
+    std::cout << "dens = [\n" << *dens << "]\n";
+    // std::cout << "Before diff==============\n";
+    SWAP(dens, dens_prev);
+    diffuse(*dens, *dens_prev);
+    // std::cout << "After diff==============\n";
+    // std::cout << "dens_s = [\n" << dens_s << "]\n";
 
-    // add sources
+    // std::cout << "dens = [\n" << dens << "]\n";
+}
+
+void FluidHook::get_sources_from_UI(MatrixXd &d) {
+    // d = *dens;
+    d.setZero();
+
     if (clickedVertex > 0 && released) {
         Vector2i start = pos2grid(clickedPos);
         Vector2i stop = pos2grid(curPos);
@@ -212,10 +242,61 @@ bool FluidHook::simulateOneStep()
 
         for (int y = y_min; y <= y_max; y++) {
             for (int x = x_min; x <= x_max; x++) {
-                dens(y, x) = 1.0;
+                d(y, x) = 1;
             }
         }
     }
+
+}
+
+void FluidHook::add_source(MatrixXd &d, MatrixXd &d0) {
+    d += d0;  // * dt;
+}
+
+void FluidHook::set_bnd(int b, MatrixXd &d) {
+    for (int i = 1; i <= N; i++) {
+        d(i, 0) = (b == 1) ? -d(i, 1) : d(i, 1);
+        d(i, N+1) = (b == 1) ? -d(i, N) : d(i, N);
+        d(0, i) = (b == 2) ? -d(1, i) : d(1, i);
+        d(N+1, i) = (b == 2) ? -d(N, i) : d(N, i);
+    }
+
+    d(0, 0) = 0.5 * (d(0, 1) + d(1, 0));
+    d(0, N+1) = 0.5 * (d(0, N) + d(1, N+1));
+    d(N+1, 0) = 0.5 * (d(N, 0) + d(N+1, 1));
+    d(N+1, N+1) = 0.5 * (d(N, N+1) + d(N+1, N));
+}
+
+void FluidHook::diffuse(MatrixXd &d, MatrixXd &d0) {
+    double a = diff * dt * N * N;
+    d.setZero();
+    // std::cout << "a=" << a << "\n";
+
+    for (int k = 0; k < constraintIters; k++) {
+        // std::cout << "d = [\n" << d << "]\n";
+        for (int y = 1; y <= N; y++) {
+            for (int x = 1; x <= N; x++) {
+                double diffused = d(y, x-1) + d(y, x+1) + d(y-1, x) + d(y+1, x);
+                d(y, x) = (d0(y, x) + a * diffused) / (1 + 4 * a);
+            }
+        }
+    }
+
+    set_bnd(0, d);
+}
+
+bool FluidHook::simulateOneStep()
+{
+    // TODO: time integration
+
+    // get_sources_from_UI(*dens_prev);
+    std::cout << "dens_prev=[\n" << *dens_prev << "]\n";
+    dens_step();
+    dens_prev->setZero();
+
+    char ch;
+    std::cout << "Press ENTER to continue...\n";
+    std::cin.ignore();
 
     return false;
 }
