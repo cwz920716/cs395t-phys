@@ -11,9 +11,9 @@ FluidHook::FluidHook() : PhysicsHook()
 
     dt = 1e-3;
     dens_intensity = 100;
-    constraintIters = 2000;
+    constraintIters = 20;
 
-    diff = 1.0;
+    diff = 1e-3;
 
     gravityEnabled = true;
     gravityG = -9.8;
@@ -34,7 +34,7 @@ void FluidHook::drawGUI(igl::opengl::glfw::imgui::ImGuiMenu &menu)
     if (ImGui::CollapsingHeader("Simulation Options", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::InputFloat("Timestep", &dt, 0, 0, 3);        
-        ImGui::InputFloat("Add Dense Intensity", &dens_intensity, 0, 0, 3);        
+        ImGui::InputFloat("Diffusion", &diff, 0, 0, 3);        
         ImGui::InputInt("Constraint Iters", &constraintIters);
     }
     if (ImGui::CollapsingHeader("Forces", ImGuiTreeNodeFlags_DefaultOpen))
@@ -159,7 +159,7 @@ void FluidHook::tick()
 
 void FluidHook::initSimulation()
 {
-    N = 10;
+    N = 100;
     width = 3.0 / N;
 
     verts_x = N + 3;
@@ -209,12 +209,12 @@ void FluidHook::initSimulation()
     renderC.setZero();
     
     // weird init cond.
-    (*dens_prev)(N/2, N/2) = 100;
+    // (*dens_prev)(N/2, N/2) = 100;
 }
 
 void FluidHook::dens_step() {
-    add_source(*dens, *dens_prev);
-    std::cout << "dens = [\n" << *dens << "]\n";
+    add_dens_source(*dens, *dens_prev);
+    // std::cout << "dens = [\n" << *dens << "]\n";
     // std::cout << "Before diff==============\n";
     SWAP(dens, dens_prev);
     diffuse(*dens, *dens_prev);
@@ -249,8 +249,14 @@ void FluidHook::get_sources_from_UI(MatrixXd &d) {
 
 }
 
-void FluidHook::add_source(MatrixXd &d, MatrixXd &d0) {
-    d += d0;  // * dt;
+void FluidHook::add_dens_source(MatrixXd &d, MatrixXd &d0) {
+    d += d0;
+    for (int y = 0; y < faces_y; y++) {
+        for (int x = 0; x < faces_x; x++) {
+            if (d(y, x) > 1.0) d(y, x) = 1.0;
+            if (d(y, x) < 0.0) d(y, x) = 0.0;
+        }
+    }
 }
 
 void FluidHook::set_bnd(int b, MatrixXd &d) {
@@ -269,7 +275,7 @@ void FluidHook::set_bnd(int b, MatrixXd &d) {
 
 void FluidHook::diffuse(MatrixXd &d, MatrixXd &d0) {
     double a = diff * dt * N * N;
-    d.setZero();
+    d = d0;
     // std::cout << "a=" << a << "\n";
 
     for (int k = 0; k < constraintIters; k++) {
@@ -289,14 +295,14 @@ bool FluidHook::simulateOneStep()
 {
     // TODO: time integration
 
-    // get_sources_from_UI(*dens_prev);
-    std::cout << "dens_prev=[\n" << *dens_prev << "]\n";
+    get_sources_from_UI(*dens_prev);
+    // std::cout << "dens_prev=[\n" << *dens_prev << "]\n";
     dens_step();
     dens_prev->setZero();
 
-    char ch;
-    std::cout << "Press ENTER to continue...\n";
-    std::cin.ignore();
+    // char ch;
+    // std::cout << "Press ENTER to continue...\n";
+    // std::cin.ignore();
 
     return false;
 }

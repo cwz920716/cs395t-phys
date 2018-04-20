@@ -72,7 +72,7 @@ private:
     void get_sources_from_UI(MatrixXd &d);
     void dens_step();
     void diffuse(MatrixXd &d, MatrixXd &d0);
-    void add_source(MatrixXd &d, MatrixXd &d0);
+    void add_dens_source(MatrixXd &d, MatrixXd &d0);
     void set_bnd(int b, MatrixXd &d);
 
     float dt;
