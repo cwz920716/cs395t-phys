@@ -195,12 +195,9 @@ class FluidSolver {
             }
 
             if (maxDelta < 1e-5) {
-                printf("Exiting solver after %d iterations, maximum change is %f\n", iter, maxDelta);
                 return;
             }
         }
-        
-        printf("Exceeded budget of %d iterations, maximum change was %f\n", limit, maxDelta);
     }
     
     /* Applies the computed pressure to the velocity field */
@@ -223,9 +220,7 @@ class FluidSolver {
     }
     
 public:
-    FluidSolver(int w, int h, double density) : _w(w), _h(h), _density(density) {
-        _hx = 1.0/min(w, h);
-        
+    FluidSolver(int w, int h, double density, double hx) : _w(w), _h(h), _density(density), _hx(hx) {
         _d = new FluidQuantity(_w,     _h,     0.5, 0.5, _hx);
         _u = new FluidQuantity(_w + 1, _h,     0.0, 0.5, _hx);
         _v = new FluidQuantity(_w,     _h + 1, 0.5, 0.0, _hx);

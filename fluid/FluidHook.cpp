@@ -10,10 +10,13 @@ FluidHook::FluidHook() : PhysicsHook()
     released = false;
 
     dt = 1e-3;
-    density = 0.1;
+    density = 1.0;
     constraintIters = 20;
 
-    diff = 1e-3;
+    L = 3.0;
+    N = 100;
+
+    persistInflow = false;
 
     gravityEnabled = true;
     gravityG = -9.8;
@@ -32,9 +35,12 @@ void FluidHook::drawGUI(igl::opengl::glfw::imgui::ImGuiMenu &menu)
 {
     if (ImGui::CollapsingHeader("Simulation Options", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        ImGui::InputFloat("Timestep", &dt, 0, 0, 3);        
-        ImGui::InputFloat("Diffusion", &diff, 0, 0, 3);        
+        ImGui::InputFloat("Timestep", &dt, 0, 0, 3);
+        ImGui::InputFloat("Size", &L, 0, 0, 3);
+        ImGui::InputInt("Resolution", &N);
+        ImGui::InputFloat("Inflow Density", &density, 0, 0, 3);
         ImGui::InputInt("Constraint Iters", &constraintIters);
+        ImGui::Checkbox("Persist Inflow", &persistInflow);
     }
     if (ImGui::CollapsingHeader("Forces", ImGuiTreeNodeFlags_DefaultOpen))
     {
@@ -160,8 +166,6 @@ void FluidHook::initSimulation()
 {
     std::cout << "initSimulation called\n";
 
-    L = 3.0;
-    N = 100;
     width = L / N;
 
     verts_x = N + 3;
@@ -203,26 +207,61 @@ void FluidHook::initSimulation()
 
     renderC.resize(faces, 3);
     renderC.setZero();
+    Vector3d white(1, 1, 1);
+    for (int i = 0; i < faces; i++) {
+        renderC.block<1, 3>(i, 0) = white;
+    }
 
     if (solver != nullptr)
         delete solver;
-    solver = new FluidSolver(faces_x, faces_y, density);
+    solver = new FluidSolver(faces_x, faces_y, density, width);
+    pflows.clear();
 
     // char ch;
     // std::cout << "Press ENTER to continue...\n";
     // std::cin.ignore();
-    
-    // weird init cond.
-    // (*dens_prev)(N/2, N/2) = 100;
 }
 
 bool FluidHook::simulateOneStep()
 {
     // TODO: time integration
-    for (int i = 0; i < 4; i++) {
-        solver->addInflow(0.45, 0.2, 0.1, 0.01, 1.0, 0.0, 3.0);
-        solver->update(dt);
+    double v = 0;
+    if (gravityEnabled) {
+        v = gravityG;
     }
+
+    if (clickedVertex > 0 && released) {
+        Vector2i start = pos2grid(clickedPos);
+        Vector2i stop = pos2grid(curPos);
+        int x_min = std::min(start(0), stop(0));
+        int x_max = std::max(start(0), stop(0));
+        int y_min = std::min(start(1), stop(1));
+        int y_max = std::max(start(1), stop(1));
+        int x_extent = x_max - x_min + 1;
+        int y_extent = y_max - y_min + 1;
+        std::cout << "add source for [" << x_min << "-" << x_max << "]["
+                                        << y_min << "-" << y_max << "]\n";
+        clickedVertex = -1;
+        released = false;
+
+        if (persistInflow) {
+            Inflow f;
+            Vector4d rect(x_min * width, y_min * width, x_extent * width, y_extent * width);
+            f.area = rect;
+            f.density = density;
+            f.u = 0.0;
+            f.v = v;
+            pflows.push_back(f);
+        } else {
+            solver->addInflow(x_min * width, y_min * width, x_extent * width, y_extent * width, density, 0.0, v);
+        }
+    }
+
+    for (auto f : pflows) {
+        solver->addInflow(f.area(0), f.area(1), f.area(2), f.area(3), f.density, f.u, f.v);
+    }
+
+    solver->update(dt);
 
     // char ch;
     // std::cout << "Press ENTER to continue...\n";

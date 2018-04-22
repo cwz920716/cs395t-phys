@@ -18,6 +18,11 @@ struct MouseEvent
     Eigen::Vector3d pos;
 };
 
+struct Inflow {
+    Vector4d area;
+    double density, u, v;
+};
+
 class FluidHook : public PhysicsHook
 {
 public:
@@ -34,7 +39,8 @@ public:
         for (int y = 0; y < faces_y; y++) {
             for (int x = 0; x < faces_x; x++) {
                 int fid = y * faces_x + x;
-                Vector3d c(0, 0, solver->atImage(x, y));
+                double shade = 1 - solver->atImage(x, y);
+                Vector3d c(shade, shade, shade);
                 renderC.block<1, 3>(fid * 2, 0) = c;
                 renderC.block<1, 3>(fid * 2 + 1, 0) = c;
             }
@@ -45,6 +51,7 @@ public:
     
     virtual void renderRenderGeometry(igl::opengl::glfw::Viewer &viewer)
     {
+        viewer.data().clear();
         viewer.data().set_mesh(renderQ, renderF);
         viewer.data().set_colors(renderC);
     }
@@ -67,15 +74,13 @@ private:
 
     float dt;
     float density;
-    float diff;
     int constraintIters;
+    int N;
+    float L, width;
 
+    bool persistInflow;
     bool gravityEnabled;
     float gravityG;
-
-    double L;
-    int N;
-    double width;
 
     std::mutex mouseMutex;
     std::vector<MouseEvent> mouseEvents;
@@ -89,6 +94,8 @@ private:
     int verts, verts_x, verts_y;
     int faces, faces_x, faces_y;
     double trans_x, trans_y;
+
+    std::vector<Inflow> pflows;
 
     Eigen::MatrixXd renderQ;
     Eigen::MatrixXi renderF;
