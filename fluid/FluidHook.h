@@ -69,10 +69,14 @@ private:
         return Vector2i(x, y); 
     }
 
-    void get_sources_from_UI(MatrixXd &d);
+    void get_sources_from_UI(MatrixXd &d, MatrixXd &u, MatrixXd &v);
     void dens_step();
-    void diffuse(MatrixXd &d, MatrixXd &d0);
+    void vel_step();
+    void diffuse(int b, MatrixXd &d, MatrixXd &d0);
+    void advect(int b, MatrixXd &d, MatrixXd &d0, MatrixXd &u, MatrixXd &v);
+    void project(MatrixXd &u, MatrixXd &v, MatrixXd &p, MatrixXd &div);
     void add_dens_source(MatrixXd &d, MatrixXd &d0);
+    void add_vel_source(MatrixXd &u, MatrixXd &v, MatrixXd &d0);
     void set_bnd(int b, MatrixXd &d);
 
     float dt;
@@ -83,6 +87,7 @@ private:
     bool gravityEnabled;
     float gravityG;
 
+    double L;
     int N;
     double width;
 
@@ -95,6 +100,12 @@ private:
 
     Eigen::MatrixXd dens_data0, dens_data1;
     MatrixXd *dens, *dens_prev;
+
+    Eigen::MatrixXd vx_data0, vx_data1;
+    MatrixXd *vx, *vx_prev;
+
+    Eigen::MatrixXd vy_data0, vy_data1;
+    MatrixXd *vy, *vy_prev;
 
     int verts, verts_x, verts_y;
     int faces, faces_x, faces_y;

@@ -20,6 +20,12 @@ FluidHook::FluidHook() : PhysicsHook()
 
     dens_prev = &dens_data0;
     dens = &dens_data1;
+
+    vx_prev = &vx_data0;
+    vx = &vx_data1;
+
+    vy_prev = &vy_data0;
+    vy = &vy_data1;
 }
 
 #define SWAP(a, b) \
@@ -159,8 +165,11 @@ void FluidHook::tick()
 
 void FluidHook::initSimulation()
 {
+    std::cout << "initSimulation called\n";
+
+    L = 3.0;
     N = 100;
-    width = 3.0 / N;
+    width = L / N;
 
     verts_x = N + 3;
     verts_y = N + 3;
@@ -199,14 +208,36 @@ void FluidHook::initSimulation()
         }
     }
 
+    renderC.resize(faces, 3);
+    renderC.setZero();
+
     dens_data0.resize(faces_y, faces_x);
     dens_data0.setZero();
 
     dens_data1.resize(faces_y, faces_x);
-    dens_data0.setZero();
+    dens_data1.setZero();
 
-    renderC.resize(faces, 3);
-    renderC.setZero();
+    vx_data0.resize(faces_y, faces_x);
+    vx_data0.setZero();
+
+    vx_data1.resize(faces_y, faces_x);
+    vx_data1.setZero();
+
+    vy_data0.resize(faces_y, faces_x);
+    vy_data0.setZero();
+
+    vy_data1.resize(faces_y, faces_x);
+    vy_data1.setZero();
+
+    for (int y = 1; y <= N; y++) {
+        for (int x = 1; x <= N; x++) {
+            (*vy)(y, x) = gravityG;
+        }
+    }
+
+    // char ch;
+    // std::cout << "Press ENTER to continue...\n";
+    // std::cin.ignore();
     
     // weird init cond.
     // (*dens_prev)(N/2, N/2) = 100;
@@ -217,14 +248,16 @@ void FluidHook::dens_step() {
     // std::cout << "dens = [\n" << *dens << "]\n";
     // std::cout << "Before diff==============\n";
     SWAP(dens, dens_prev);
-    diffuse(*dens, *dens_prev);
+    diffuse(0, *dens, *dens_prev);
+    SWAP(dens, dens_prev);
+    advect(0, *dens, *dens_prev, *vx, *vy);
     // std::cout << "After diff==============\n";
     // std::cout << "dens_s = [\n" << dens_s << "]\n";
 
     // std::cout << "dens = [\n" << dens << "]\n";
 }
 
-void FluidHook::get_sources_from_UI(MatrixXd &d) {
+void FluidHook::get_sources_from_UI(MatrixXd &d, MatrixXd &u, MatrixXd &v) {
     // d = *dens;
     d.setZero();
 
@@ -235,8 +268,8 @@ void FluidHook::get_sources_from_UI(MatrixXd &d) {
         int x_max = std::max(start(0), stop(0));
         int y_min = std::min(start(1), stop(1));
         int y_max = std::max(start(1), stop(1));
-        // std::cout << "add source for [" << x_min << "-" << x_max << "]["
-        //                                 << y_min << "-" << y_max << "]\n";
+        std::cout << "add source for [" << x_min << "-" << x_max << "]["
+                                        << y_min << "-" << y_max << "]\n";
         clickedVertex = -1;
         released = false;
 
@@ -273,7 +306,7 @@ void FluidHook::set_bnd(int b, MatrixXd &d) {
     d(N+1, N+1) = 0.5 * (d(N, N+1) + d(N+1, N));
 }
 
-void FluidHook::diffuse(MatrixXd &d, MatrixXd &d0) {
+void FluidHook::diffuse(int b, MatrixXd &d, MatrixXd &d0) {
     double a = diff * dt * N * N;
     d = d0;
     // std::cout << "a=" << a << "\n";
@@ -286,17 +319,105 @@ void FluidHook::diffuse(MatrixXd &d, MatrixXd &d0) {
                 d(y, x) = (d0(y, x) + a * diffused) / (1 + 4 * a);
             }
         }
+
+        set_bnd(b, d);
+    }
+}
+
+void FluidHook::advect(int b, MatrixXd &d, MatrixXd &d0, MatrixXd &u, MatrixXd &v) {
+    d.setZero();
+    double dt0 = dt / width;
+    for (int y = 1; y <= N; y++) {
+        for (int x = 1; x <= N; x++) {
+            double xo = x - dt0 * u(y, x);
+            double yo = y - dt0 * v(y, x);
+            xo = std::max(xo, 0.5);
+            xo = std::min(xo, N + 0.5);
+            yo = std::max(yo, 0.5);
+            yo = std::min(yo, N + 0.5);
+            int xi = static_cast<int>(xo);
+            int xii = xi + 1;
+            int yi = static_cast<int>(yo);
+            int yii = yi + 1;
+            double s1 = xo - xi;
+            double s0 = 1 - s1;
+            double t1 = yo - yi;
+            double t0 = 1 - t1;
+            double dx0 = t0 * d0(yi, xi) + t1 * d0(yii, xi);
+            double dx1 = t0 * d0(yii, xii) + t1 * d0(yii, xii);
+            d(y, x) = s0 * dx0 + s1 * dx1;
+        }
     }
 
-    set_bnd(0, d);
+    set_bnd(b, d);
+}
+
+void FluidHook::add_vel_source(MatrixXd &u, MatrixXd &v, MatrixXd &d0) {
+    if (gravityEnabled) {
+        for (int y = 1; y <= N; y++) {
+            for (int x = 1; x <= N; x++) {
+                v(y, x) += d0(y, x) * dt * gravityG;
+            }
+        }
+    }
+}
+
+void FluidHook::project(MatrixXd &u, MatrixXd &v, MatrixXd &p, MatrixXd &div) {
+    double h = width;
+    for (int y = 1; y <= N; y++) {
+        for (int x = 1; x <= N; x++) {
+            div(y, x) = -0.5 * h * (u(y, x+1) - u(y, x-1) + v(y+1, x) - v(y-1, x));
+            p(y, x) = 0;
+        }
+    }
+    set_bnd(0, div);
+    set_bnd(0, p);
+
+    p = div;
+    for (int k = 0; k < constraintIters; k++) {
+        for (int y = 1; y <= N; y++) {
+            for (int x = 1; x <= N; x++) {
+                p(y, x) = (div(y, x) + p(y-1, x) + p(y+1, x) + p(y, x-1) + p(y, x+1)) / 4;
+                
+            }
+        }
+
+        set_bnd(0, p);
+    }
+
+    for (int y = 1; y <= N; y++) {
+        for (int x = 1; x <= N; x++) {
+            u(y, x) -= 0.5 * (p(y, x+1) - p(y, x-1)) / h;
+            v(y, x) -= 0.5 * (p(y+1, x) - p(y+1, x)) / h;
+        }
+    }
+
+    set_bnd(1, u);
+    set_bnd(2, v);
+}
+
+void FluidHook::vel_step() {
+    // add_vel_source(*vx, *vy, *dens);
+    SWAP(vx, vx_prev);
+    SWAP(vy, vy_prev);
+    diffuse(1, *vx, *vx_prev);
+    diffuse(2, *vy, *vy_prev);
+    project(*vx, *vy, *vx_prev, *vy_prev);
+    SWAP(vx, vx_prev);
+    SWAP(vy, vy_prev);
+    advect(1, *vx, *vx_prev, *vx_prev, *vy_prev);
+    advect(2, *vy, *vy_prev, *vx_prev, *vy_prev);
+    project(*vx, *vy, *vx_prev, *vy_prev);
 }
 
 bool FluidHook::simulateOneStep()
 {
     // TODO: time integration
 
-    get_sources_from_UI(*dens_prev);
+    get_sources_from_UI(*dens_prev, *vx, *vy);
     // std::cout << "dens_prev=[\n" << *dens_prev << "]\n";
+    std::cout << "vy=[\n" << *vy << "]\n";
+    vel_step();
     dens_step();
     dens_prev->setZero();
 
