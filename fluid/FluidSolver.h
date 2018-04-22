@@ -290,5 +290,10 @@ public:
         /* Clamp to sensible maximum value in case of very small velocities */
         return min(maxTimestep, 1.0);
     }
+    
+    /* Convert fluid density to RGBA image */
+    double atImage(int x, int y) {
+        return _d->src()[y * _w + x];
+    }
 };
 

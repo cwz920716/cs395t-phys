@@ -1,6 +1,7 @@
 #include "PhysicsHook.h"
 #include <igl/readOBJ.h>
 #include <iostream>
+#include "FluidSolver.h"
 
 using namespace Eigen;
 
@@ -30,15 +31,10 @@ public:
 
     virtual void updateRenderGeometry()
     {
-        if (dens == nullptr) {
-            std::cout << "Error: dens should never be nullptr!\n";
-            exit(0);
-        }
-
         for (int y = 0; y < faces_y; y++) {
             for (int x = 0; x < faces_x; x++) {
                 int fid = y * faces_x + x;
-                Vector3d c(0, 0, (*dens)(y, x));
+                Vector3d c(0, 0, solver->atImage(x, y));
                 renderC.block<1, 3>(fid * 2, 0) = c;
                 renderC.block<1, 3>(fid * 2 + 1, 0) = c;
             }
@@ -69,18 +65,8 @@ private:
         return Vector2i(x, y); 
     }
 
-    void get_sources_from_UI(MatrixXd &d, MatrixXd &u, MatrixXd &v);
-    void dens_step();
-    void vel_step();
-    void diffuse(int b, MatrixXd &d, MatrixXd &d0);
-    void advect(int b, MatrixXd &d, MatrixXd &d0, MatrixXd &u, MatrixXd &v);
-    void project(MatrixXd &u, MatrixXd &v, MatrixXd &p, MatrixXd &div);
-    void add_dens_source(MatrixXd &d, MatrixXd &d0);
-    void add_vel_source(MatrixXd &u, MatrixXd &v, MatrixXd &d0);
-    void set_bnd(int b, MatrixXd &d);
-
     float dt;
-    float dens_intensity;
+    float density;
     float diff;
     int constraintIters;
 
@@ -98,14 +84,7 @@ private:
     double clickedz;
     Eigen::Vector3d curPos, clickedPos; // the current position of the mouse cursor in 3D
 
-    Eigen::MatrixXd dens_data0, dens_data1;
-    MatrixXd *dens, *dens_prev;
-
-    Eigen::MatrixXd vx_data0, vx_data1;
-    MatrixXd *vx, *vx_prev;
-
-    Eigen::MatrixXd vy_data0, vy_data1;
-    MatrixXd *vy, *vy_prev;
+    FluidSolver *solver;
 
     int verts, verts_x, verts_y;
     int faces, faces_x, faces_y;
