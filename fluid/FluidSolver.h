@@ -5,23 +5,24 @@
 #include <stdio.h>
 
 using namespace std;
+using namespace Eigen;
 
 class FluidQuantity {
     /* Memory buffers for fluid quantity */
-    double *_src;
-    double *_dst;
+    double *src_;
+    double *dst_;
 
     /* Width and height */
-    int _w;
-    int _h;
+    int w_;
+    int h_;
     /* X and Y offset from top left grid cell.
      * This is (0.5,0.5) for centered quantities such as density,
      * and (0.0, 0.5) or (0.5, 0.0) for jittered quantities like the velocity.
      */
-    double _ox;
+    double ox_;
     double _oy;
     /* Grid cell size */
-    double _hx;
+    double hx_;
     
     /* Linear intERPolate between a and b for x ranging from 0 to 1 */
     double lerp(double a, double b, double x) const {
@@ -30,8 +31,8 @@ class FluidQuantity {
     
     /* Simple forward Euler method for velocity integration in time */
     void euler(double &x, double &y, double timestep, const FluidQuantity &u, const FluidQuantity &v) const {
-        double uVel = u.lerp(x, y)/_hx;
-        double vVel = v.lerp(x, y)/_hx;
+        double uVel = u.lerp(x, y)/hx_;
+        double vVel = v.lerp(x, y)/hx_;
         
         x -= uVel*timestep;
         y -= vVel*timestep;
@@ -39,41 +40,41 @@ class FluidQuantity {
     
 public:
     FluidQuantity(int w, int h, double ox, double oy, double hx)
-            : _w(w), _h(h), _ox(ox), _oy(oy), _hx(hx) {
-        _src = new double[_w*_h];
-        _dst = new double[_w*_h];
+            : w_(w), h_(h), ox_(ox), _oy(oy), hx_(hx) {
+        src_ = new double[w_*h_];
+        dst_ = new double[w_*h_];
                 
-        memset(_src, 0, _w*_h*sizeof(double));
+        memset(src_, 0, w_*h_*sizeof(double));
     }
     
     ~FluidQuantity() {
-        delete[] _src;
-        delete[] _dst;
+        delete[] src_;
+        delete[] dst_;
     }
     
     void flip() {
-        swap(_src, _dst);
+        swap(src_, dst_);
     }
     
     const double *src() const {
-        return _src;
+        return src_;
     }
     
     /* Read-only and read-write access to grid cells */
     double at(int x, int y) const {
-        return _src[x + y*_w];
+        return src_[x + y*w_];
     }
     
     double &at(int x, int y) {
-        return _src[x + y*_w];
+        return src_[x + y*w_];
     }
     
     /* Linear intERPolate on grid at coordinates (x, y).
      * Coordinates will be clamped to lie in simulation domain
      */
     double lerp(double x, double y) const {
-        x = min(max(x - _ox, 0.0), _w - 1.001);
-        y = min(max(y - _oy, 0.0), _h - 1.001);
+        x = min(max(x - ox_, 0.0), w_ - 1.001);
+        y = min(max(y - _oy, 0.0), h_ - 1.001);
         int ix = (int)x;
         int iy = (int)y;
         x -= ix;
@@ -87,31 +88,31 @@ public:
     
     /* Advect grid in velocity field u, v with given timestep */
     void advect(double timestep, const FluidQuantity &u, const FluidQuantity &v) {
-        for (int iy = 0, idx = 0; iy < _h; iy++) {
-            for (int ix = 0; ix < _w; ix++, idx++) {
-                double x = ix + _ox;
+        for (int iy = 0, idx = 0; iy < h_; iy++) {
+            for (int ix = 0; ix < w_; ix++, idx++) {
+                double x = ix + ox_;
                 double y = iy + _oy;
                 
                 /* First component: Integrate in time */
                 euler(x, y, timestep, u, v);
                 
                 /* Second component: Interpolate from grid */
-                _dst[idx] = lerp(x, y);
+                dst_[idx] = lerp(x, y);
             }
         }
     }
     
     /* Sets fluid quantity inside the given rect to value `v' */
     void addInflow(double x0, double y0, double x1, double y1, double v) {
-        int ix0 = (int)(x0/_hx - _ox);
-        int iy0 = (int)(y0/_hx - _oy);
-        int ix1 = (int)(x1/_hx - _ox);
-        int iy1 = (int)(y1/_hx - _oy);
+        int ix0 = (int)(x0/hx_ - ox_);
+        int iy0 = (int)(y0/hx_ - _oy);
+        int ix1 = (int)(x1/hx_ - ox_);
+        int iy1 = (int)(y1/hx_ - _oy);
         
-        for (int y = max(iy0, 0); y < min(iy1, _h); y++)
-            for (int x = max(ix0, 0); x < min(ix1, _h); x++)
-                if (fabs(_src[x + y*_w]) < fabs(v))
-                    _src[x + y*_w] = v;
+        for (int y = max(iy0, 0); y < min(iy1, h_); y++)
+            for (int x = max(ix0, 0); x < min(ix1, h_); x++)
+                if (fabs(src_[x + y*w_]) < fabs(v))
+                    src_[x + y*w_] = v;
     }
 };
 
@@ -120,31 +121,31 @@ public:
  */
 class FluidSolver {
     /* Fluid quantities */
-    FluidQuantity *_d;
-    FluidQuantity *_u;
-    FluidQuantity *_v;
+    FluidQuantity *d_;
+    FluidQuantity *u_;
+    FluidQuantity *v_;
     
     /* Width and height */
-    int _w;
-    int _h;
+    int w_;
+    int h_;
     
     /* Grid cell size and fluid density */
-    double _hx;
-    double _density;
+    double hx_;
+    double density_;
     
     /* Arrays for: */
-    double *_r; /* Right hand side of pressure solve */
-    double *_p; /* Pressure solution */
+    double *r_; /* Right hand side of pressure solve */
+    double *p_; /* Pressure solution */
     
     
     /* Builds the pressure right hand side as the negative divergence */
     void buildRhs() {
-        double scale = 1.0/_hx;
+        double scale = 1.0/hx_;
         
-        for (int y = 0, idx = 0; y < _h; y++) {
-            for (int x = 0; x < _w; x++, idx++) {
-                _r[idx] = -scale*(_u->at(x + 1, y) - _u->at(x, y) +
-                                  _v->at(x, y + 1) - _v->at(x, y));
+        for (int y = 0, idx = 0; y < h_; y++) {
+            for (int x = 0; x < w_; x++, idx++) {
+                r_[idx] = -scale*(u_->at(x + 1, y) - u_->at(x, y) +
+                                  v_->at(x, y + 1) - v_->at(x, y));
             }
         }
     }
@@ -154,14 +155,14 @@ class FluidSolver {
      * a threshold, but will never exceed `limit' iterations
      */
     void project(int limit, double timestep) {
-        double scale = timestep/(_density*_hx*_hx);
+        double scale = timestep/(density_*hx_*hx_);
         
         double maxDelta;
         for (int iter = 0; iter < limit; iter++) {
             maxDelta = 0.0;
-            for (int y = 0, idx = 0; y < _h; y++) {
-                for (int x = 0; x < _w; x++, idx++) {
-                    int idx = x + y*_w;
+            for (int y = 0, idx = 0; y < h_; y++) {
+                for (int x = 0; x < w_; x++, idx++) {
+                    int idx = x + y*w_;
                     
                     double diag = 0.0, offDiag = 0.0;
                     
@@ -171,26 +172,26 @@ class FluidSolver {
                      */
                     if (x > 0) {
                         diag    += scale;
-                        offDiag -= scale*_p[idx - 1];
+                        offDiag -= scale*p_[idx - 1];
                     }
                     if (y > 0) {
                         diag    += scale;
-                        offDiag -= scale*_p[idx - _w];
+                        offDiag -= scale*p_[idx - w_];
                     }
-                    if (x < _w - 1) {
+                    if (x < w_ - 1) {
                         diag    += scale;
-                        offDiag -= scale*_p[idx + 1];
+                        offDiag -= scale*p_[idx + 1];
                     }
-                    if (y < _h - 1) {
+                    if (y < h_ - 1) {
                         diag    += scale;
-                        offDiag -= scale*_p[idx + _w];
+                        offDiag -= scale*p_[idx + w_];
                     }
 
-                    double newP = (_r[idx] - offDiag)/diag;
+                    double newP = (r_[idx] - offDiag)/diag;
                     
-                    maxDelta = max(maxDelta, fabs(_p[idx] - newP));
+                    maxDelta = max(maxDelta, fabs(p_[idx] - newP));
                     
-                    _p[idx] = newP;
+                    p_[idx] = newP;
                 }
             }
 
@@ -202,42 +203,42 @@ class FluidSolver {
     
     /* Applies the computed pressure to the velocity field */
     void applyPressure(double timestep) {
-        double scale = timestep/(_density*_hx);
+        double scale = timestep/(density_*hx_);
         
-        for (int y = 0, idx = 0; y < _h; y++) {
-            for (int x = 0; x < _w; x++, idx++) {
-                _u->at(x,     y    ) -= scale*_p[idx];
-                _u->at(x + 1, y    ) += scale*_p[idx];
-                _v->at(x,     y    ) -= scale*_p[idx];
-                _v->at(x,     y + 1) += scale*_p[idx];
+        for (int y = 0, idx = 0; y < h_; y++) {
+            for (int x = 0; x < w_; x++, idx++) {
+                u_->at(x,     y    ) -= scale*p_[idx];
+                u_->at(x + 1, y    ) += scale*p_[idx];
+                v_->at(x,     y    ) -= scale*p_[idx];
+                v_->at(x,     y + 1) += scale*p_[idx];
             }
         }
         
-        for (int y = 0; y < _h; y++)
-            _u->at(0, y) = _u->at(_w, y) = 0.0;
-        for (int x = 0; x < _w; x++)
-            _v->at(x, 0) = _v->at(x, _h) = 0.0;
+        for (int y = 0; y < h_; y++)
+            u_->at(0, y) = u_->at(w_, y) = 0.0;
+        for (int x = 0; x < w_; x++)
+            v_->at(x, 0) = v_->at(x, h_) = 0.0;
     }
     
 public:
-    FluidSolver(int w, int h, double density, double hx) : _w(w), _h(h), _density(density), _hx(hx) {
-        _d = new FluidQuantity(_w,     _h,     0.5, 0.5, _hx);
-        _u = new FluidQuantity(_w + 1, _h,     0.0, 0.5, _hx);
-        _v = new FluidQuantity(_w,     _h + 1, 0.5, 0.0, _hx);
+    FluidSolver(int w, int h, double density, double hx) : w_(w), h_(h), density_(density), hx_(hx) {
+        d_ = new FluidQuantity(w_,     h_,     0.5, 0.5, hx_);
+        u_ = new FluidQuantity(w_ + 1, h_,     0.0, 0.5, hx_);
+        v_ = new FluidQuantity(w_,     h_ + 1, 0.5, 0.0, hx_);
         
-        _r = new double[_w*_h];
-        _p = new double[_w*_h];
+        r_ = new double[w_*h_];
+        p_ = new double[w_*h_];
         
-        memset(_p, 0, _w*_h*sizeof(double));
+        memset(p_, 0, w_*h_*sizeof(double));
     }
     
     ~FluidSolver() {
-        delete _d;
-        delete _u;
-        delete _v;
+        delete d_;
+        delete u_;
+        delete v_;
         
-        delete[] _r;
-        delete[] _p;
+        delete[] r_;
+        delete[] p_;
     }
     
     void update(double timestep) {
@@ -245,21 +246,21 @@ public:
         project(600, timestep);
         applyPressure(timestep);
         
-        _d->advect(timestep, *_u, *_v);
-        _u->advect(timestep, *_u, *_v);
-        _v->advect(timestep, *_u, *_v);
+        d_->advect(timestep, *u_, *v_);
+        u_->advect(timestep, *u_, *v_);
+        v_->advect(timestep, *u_, *v_);
         
         /* Make effect of advection visible, since it's not an in-place operation */
-        _d->flip();
-        _u->flip();
-        _v->flip();
+        d_->flip();
+        u_->flip();
+        v_->flip();
     }
     
     /* Set density and x/y velocity in given rectangle to d/u/v, respectively */
     void addInflow(double x, double y, double w, double h, double d, double u, double v) {
-        _d->addInflow(x, y, x + w, y + h, d);
-        _u->addInflow(x, y, x + w, y + h, u);
-        _v->addInflow(x, y, x + w, y + h, v);
+        d_->addInflow(x, y, x + w, y + h, d);
+        u_->addInflow(x, y, x + w, y + h, u);
+        v_->addInflow(x, y, x + w, y + h, v);
     }
     
     /* Returns the maximum allowed timestep. Note that the actual timestep
@@ -268,11 +269,11 @@ public:
      */
     double maxTimestep() {
         double maxVelocity = 0.0;
-        for (int y = 0; y < _h; y++) {
-            for (int x = 0; x < _w; x++) {
+        for (int y = 0; y < h_; y++) {
+            for (int x = 0; x < w_; x++) {
                 /* Average velocity at grid cell center */
-                double u = _u->lerp(x + 0.5, y + 0.5);
-                double v = _v->lerp(x + 0.5, y + 0.5);
+                double u = u_->lerp(x + 0.5, y + 0.5);
+                double v = v_->lerp(x + 0.5, y + 0.5);
                 
                 double velocity = sqrt(u*u + v*v);
                 maxVelocity = max(maxVelocity, velocity);
@@ -280,7 +281,7 @@ public:
         }
         
         /* Fluid should not flow more than two grid cells per iteration */
-        double maxTimestep = 2.0*_hx/maxVelocity;
+        double maxTimestep = 2.0*hx_/maxVelocity;
         
         /* Clamp to sensible maximum value in case of very small velocities */
         return min(maxTimestep, 1.0);
@@ -288,7 +289,7 @@ public:
     
     /* Convert fluid density to RGBA image */
     double atImage(int x, int y) {
-        return _d->src()[y * _w + x];
+        return d_->src()[y * w_ + x];
     }
 };
 
