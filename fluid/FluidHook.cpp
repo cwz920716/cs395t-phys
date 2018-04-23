@@ -11,7 +11,8 @@ FluidHook::FluidHook() : PhysicsHook()
 
     dt = 1e-3;
     density = 1.0;
-    constraintIters = 20;
+    PCGIters = 20;
+    PCGTolerence = 1.0e-8;
 
     L = 3.0;
     N = 100;
@@ -39,7 +40,7 @@ void FluidHook::drawGUI(igl::opengl::glfw::imgui::ImGuiMenu &menu)
         ImGui::InputFloat("Size", &L, 0, 0, 3);
         ImGui::InputInt("Resolution", &N);
         ImGui::InputFloat("Inflow Density", &density, 0, 0, 3);
-        ImGui::InputInt("Constraint Iters", &constraintIters);
+        ImGui::InputInt("PCG Iters", &PCGIters);
         ImGui::Checkbox("Persist Inflow", &persistInflow);
     }
     if (ImGui::CollapsingHeader("Forces", ImGuiTreeNodeFlags_DefaultOpen))
@@ -239,8 +240,8 @@ bool FluidHook::simulateOneStep()
         int y_max = std::max(start(1), stop(1));
         int x_extent = x_max - x_min + 1;
         int y_extent = y_max - y_min + 1;
-        std::cout << "add source for [" << x_min << "-" << x_max << "]["
-                                        << y_min << "-" << y_max << "]\n";
+        // std::cout << "add source for [" << x_min << "-" << x_max << "]["
+        //                                 << y_min << "-" << y_max << "]\n";
         clickedVertex = -1;
         released = false;
 
@@ -261,7 +262,7 @@ bool FluidHook::simulateOneStep()
         solver->addInflow(f.area(0), f.area(1), f.area(2), f.area(3), f.density, f.u, f.v);
     }
 
-    solver->update(dt);
+    solver->update(dt, PCGIters, PCGTolerence);
 
     // char ch;
     // std::cout << "Press ENTER to continue...\n";

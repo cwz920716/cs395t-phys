@@ -74,7 +74,8 @@ private:
 
     float dt;
     float density;
-    int constraintIters;
+    int PCGIters;
+    float PCGTolerence;
     int N;
     float L, width;
 
