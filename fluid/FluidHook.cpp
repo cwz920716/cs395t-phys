@@ -227,8 +227,12 @@ bool FluidHook::simulateOneStep()
 {
     // TODO: time integration
     double v = 0;
+    BodyForces f;
     if (gravityEnabled) {
         v = gravityG;
+        f.g = gravityG;
+    } else {
+        f.g = 0;
     }
 
     if (clickedVertex > 0 && released) {
@@ -262,7 +266,7 @@ bool FluidHook::simulateOneStep()
         solver->addInflow(f.area(0), f.area(1), f.area(2), f.area(3), f.density, f.u, f.v);
     }
 
-    solver->update(dt, PCGIters, PCGTolerence);
+    solver->update(dt, PCGIters, PCGTolerence, f);
 
     // char ch;
     // std::cout << "Press ENTER to continue...\n";

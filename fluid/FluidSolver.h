@@ -110,6 +110,10 @@ public:
     }
 };
 
+struct BodyForces {
+    double g;
+};
+
 /* Fluid solver class. Sets up the fluid quantities, forces incompressibility
  * performs advection and adds inflows.
  */
@@ -220,7 +224,7 @@ class FluidSolver {
                 if (e < sigma * Adiag_(idx))
                     e = Adiag_(idx);
 
-                precon_(idx) = 1.0 / sqrt(e + 1.0e-9);
+                precon_(idx) = 1.0 / sqrt(e + 1.0e-30);
             }
         }
     }
@@ -394,11 +398,7 @@ public:
         delete v_;
     }
     
-    void update(double dt, int maxIter, double maxError) {
-        project(maxIter, dt, maxError);
-        // std::cout << "p_ = " << p_ <<"\n";
-        applyPressure(dt);
-        
+    void update(double dt, int maxIter, double maxError, BodyForces &f) {
         d_->advect(dt, *u_, *v_);
         u_->advect(dt, *u_, *v_);
         v_->advect(dt, *u_, *v_);
@@ -408,6 +408,17 @@ public:
         u_->flip();
         v_->flip();
         // std::cout << "1 iter done...\n";
+
+        for (int y = 1; y < h_ - 1; y++) {
+            for (int x = 0; x < w_; x++) {
+                int idx = x + y * w_;
+                v_->at(x, y) += f.g * dt;
+            }
+        }
+
+        project(maxIter, dt, maxError);
+        // std::cout << "p_ = " << p_ <<"\n";
+        applyPressure(dt);
     }
     
     /* Set density and x/y velocity in given rectangle to d/u/v, respectively */
