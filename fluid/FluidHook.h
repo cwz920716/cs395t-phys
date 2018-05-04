@@ -39,8 +39,11 @@ public:
         for (int y = 0; y < faces_y; y++) {
             for (int x = 0; x < faces_x; x++) {
                 int fid = y * faces_x + x;
-                double shade = 1 - solver->atImage(x, y);
+                double shade = 1.0 - solver->atImage(x, y);
                 Vector3d c(shade, shade, shade);
+                if (solver->atImage(x, y) < 0) {
+                    c = Vector3d(-solver->atImage(x, y), 0, 0);
+                }
                 renderC.block<1, 3>(fid * 2, 0) = c;
                 renderC.block<1, 3>(fid * 2 + 1, 0) = c;
             }

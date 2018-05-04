@@ -112,7 +112,7 @@ public:
     /* If the point (x, y) is inside a solid, project it back out to the
      * closest point on the surface of the solid.
      */
-    Vector2d backProject(double x, double y, const vector<const SolidBody *> &bodies) {
+    Vector2d backProject(double x, double y, const vector<SolidBody *> &bodies) {
         int rx = min(max((int)(x - ox_), 0), w_ - 1);
         int ry = min(max((int)(y - oy_), 0), h_ - 1);
         
@@ -127,7 +127,7 @@ public:
         return Vector2d(x, y);
     }
 
-    void advect(double dt, const MACGrid &u, const MACGrid &v, const vector<const SolidBody *> &bodies) {
+    void advect(double dt, const MACGrid &u, const MACGrid &v, const vector<SolidBody *> &bodies) {
         for (int iy = 0; iy < h_; iy++) {
             for (int ix = 0; ix < w_; ix++) {
                 double x = ix + ox_;
@@ -156,7 +156,7 @@ public:
 
     
     /* Fill all solid related fields - that is, _cell, _body and _normalX/Y */
-    void fillSolidFields(const vector<const SolidBody *> &bodies) {
+    void fillSolidFields(const vector<SolidBody *> &bodies) {
         if (bodies.empty())
             return;
         
@@ -308,7 +308,7 @@ class FluidSolver {
     VectorXd Aplusj_;
     
     /* List of solid bodies to consider in the simulation */
-    vector<const SolidBody *> bodies_;
+    vector<SolidBody *> bodies_;
     
     /* Builds the pressure right hand side as the negative divergence */
     void buildResidual() {
@@ -609,17 +609,6 @@ public:
         
         setBoundaryCondition();
 
-        for (int y = 1; y < h_ - 1; y++) {
-            for (int x = 0; x < w_; x++) {
-                int idx = x + y * w_;
-                v_->at(x, y) += f.g * dt;
-            }
-        }
-
-        project(maxIter, dt, maxError);
-        // std::cout << "p_ = " << p_ <<"\n";
-        applyPressure(dt);
-
         
         d_->extrapolate();
         u_->extrapolate();
@@ -636,6 +625,17 @@ public:
         u_->flip();
         v_->flip();
         // std::cout << "1 iter done...\n";
+
+        for (int y = 1; y < h_ - 1; y++) {
+            for (int x = 0; x < w_; x++) {
+                int idx = x + y * w_;
+                v_->at(x, y) += f.g * dt;
+            }
+        }
+
+        project(maxIter, dt, maxError);
+        // std::cout << "p_ = " << p_ <<"\n";
+        applyPressure(dt);
     }
     
     /* Set density and x/y velocity in given rectangle to d/u/v, respectively */
@@ -648,11 +648,11 @@ public:
     double atImage(int x, int y) {
         auto &cell = d_->cell();
         if (cell(x + y * w_) == CELL_SOLID)
-            return 1.0;
+            return -1.0;
         return d_->src()[y * w_ + x];
     }
 
-    void addBody(const SolidBody *b) {
+    void addBody(SolidBody *b) {
         bodies_.push_back(b);
     }
 };
