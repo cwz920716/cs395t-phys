@@ -17,7 +17,7 @@ This should find and build the dependencies and create a `example_bin` binary.
 
 From within the `build` directory just issue:
 
-    ./cloth_bin
+    ./fluid_bin
 
 A glfw app should launch displaying a GUI. The code will try to load mesh files from either
 the ./meshes or ../meshes folder, so you need to run the binary from either the project root

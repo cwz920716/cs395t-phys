@@ -229,6 +229,7 @@ bool FluidHook::simulateOneStep()
     double v = 0;
     BodyForces f;
     if (gravityEnabled) {
+        // add a initaial velocity for the gravity to make things more aggressive
         v = gravityG;
         f.g = gravityG;
     } else {

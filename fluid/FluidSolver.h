@@ -4,12 +4,19 @@
 #include <math.h>
 #include <stdio.h>
 
+#include "Solid.h"
+
 using namespace std;
 using namespace Eigen;
 
 class MACGrid {
     VectorXd *src_;
     VectorXd *dst_;
+    VectorXd normalX_;
+    VectorXd normalY_;
+    VectorXi cell_;
+    VectorXi body_;
+    VectorXi mask_;
 
     int w_;
     int h_;
@@ -45,11 +52,28 @@ public:
                 
         src_->setZero();
         dst_->setZero();
+
+        normalX_.resize(w_ * h_);
+        normalY_.resize(w_ * h_);
+
+        cell_.resize(w_ * h_);
+        body_.resize(w_ * h_);
+        mask_.resize(w_ * h_);
+
+        cell_.setZero();
     }
     
     ~MACGrid() {
         delete src_;
         delete dst_;
+    }
+
+    const VectorXi &cell() const {
+        return cell_;
+    }
+
+    const VectorXi &body() const {
+        return body_;
     }
     
     void flip() {
@@ -81,6 +105,24 @@ public:
         // std::cout << "lerp: " << ix << "," << iy << "\n";
         // std::cout << "lerp: " << x00 << "," << x01 << "," << x10 << "," << x11 << "\n";
         return lerp(lerp(x00, x10, dx), lerp(x01, x11, dx), dy);
+    }
+
+
+    
+    /* If the point (x, y) is inside a solid, project it back out to the
+     * closest point on the surface of the solid.
+     */
+    void backProject(double &x, double &y, const vector<const SolidBody *> &bodies) {
+        int rx = min(max((int)(x - ox_), 0), w_ - 1);
+        int ry = min(max((int)(y - oy_), 0), h_ - 1);
+        
+        if (cell_(rx + ry * w_) != CELL_FLUID) {
+            x = (x - ox_) * hx_;
+            y = (y - oy_) * hx_;
+            bodies[body_(rx + ry * w_)]->closestSurfacePoint(x, y);
+            x = x / hx_ + ox_;
+            y = y / hx_ + oy_;
+        }
     }
 
     void advect(double dt, const MACGrid &u, const MACGrid &v) {
@@ -428,7 +470,6 @@ public:
         v_->addInflow(x, y, x + w, y + h, v);
     }
     
-    /* Convert fluid density to RGBA image */
     double atImage(int x, int y) {
         return d_->src()[y * w_ + x];
     }
