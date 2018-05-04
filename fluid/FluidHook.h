@@ -83,6 +83,8 @@ private:
     bool gravityEnabled;
     float gravityG;
 
+    float theta;
+
     std::mutex mouseMutex;
     std::vector<MouseEvent> mouseEvents;
     int clickedVertex; // the currently selected vertex (-1 if no vertex)

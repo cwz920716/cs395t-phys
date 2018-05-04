@@ -112,7 +112,7 @@ public:
     /* If the point (x, y) is inside a solid, project it back out to the
      * closest point on the surface of the solid.
      */
-    void backProject(double &x, double &y, const vector<const SolidBody *> &bodies) {
+    Vector2d backProject(double x, double y, const vector<const SolidBody *> &bodies) {
         int rx = min(max((int)(x - ox_), 0), w_ - 1);
         int ry = min(max((int)(y - oy_), 0), h_ - 1);
         
@@ -123,9 +123,11 @@ public:
             x = x / hx_ + ox_;
             y = y / hx_ + oy_;
         }
+
+        return Vector2d(x, y);
     }
 
-    void advect(double dt, const MACGrid &u, const MACGrid &v) {
+    void advect(double dt, const MACGrid &u, const MACGrid &v, const vector<const SolidBody *> &bodies) {
         for (int iy = 0; iy < h_; iy++) {
             for (int ix = 0; ix < w_; ix++) {
                 double x = ix + ox_;
@@ -133,6 +135,7 @@ public:
                 
                 auto xo = back_advect(x, y, dt, u, v);
                 // std::cout << "xo = [" << xo << "]\n";
+                xo = backProject(xo(0), xo(1), bodies);
                 (*dst_)(ix + iy * w_) = lerp(xo(0), xo(1));
             }
         }
@@ -148,6 +151,125 @@ public:
             for (int x = max(ix0, 0); x < min(ix1, h_); x++) {
                 (*src_)(x + y * w_) = v;
             }
+        }
+    }
+
+    
+    /* Fill all solid related fields - that is, _cell, _body and _normalX/Y */
+    void fillSolidFields(const vector<const SolidBody *> &bodies) {
+        if (bodies.empty())
+            return;
+        
+        for (int iy = 0, idx = 0; iy < h_; iy++) {
+            for (int ix = 0; ix < w_; ix++, idx++) {
+                double x = (ix + ox_) * hx_;
+                double y = (iy + oy_) * hx_;
+                
+                /* Search closest solid */
+                body_(idx) = 0;
+                double d = bodies[0]->distance(x, y);
+                for (unsigned i = 1; i < bodies.size(); i++) {
+                    double id = bodies[i]->distance(x, y);
+                    if (id < d) {
+                        body_(idx) = i;
+                        d = id;
+                    }
+                }
+                
+                /* If distance to closest solid is negative, this cell must be
+                 * inside it
+                 */
+                if (d < 0.0)
+                    cell_(idx) = CELL_SOLID;
+                else
+                    cell_(idx) = CELL_FLUID;
+                double nx, ny;
+                bodies[body_(idx)]->distanceNormal(nx, ny, x, y);
+                normalX_(idx) = nx;
+                normalY_(idx) = ny;
+            }
+        }
+    }
+
+    void fillSolidMask() {
+        for (int y = 1; y < h_ - 1; y++) {
+            for (int x = 1; x < w_ - 1; x++) {
+                int idx = x + y * w_;
+                
+                if (cell_(idx) == CELL_FLUID)
+                    continue;
+                
+                double nx = normalX_(idx);
+                double ny = normalY_(idx);
+
+                mask_(idx) = 0;
+                if (nx != 0.0 && cell_(idx + sgn(nx))    != CELL_FLUID)
+                    mask_(idx) |= 1; /* Neighbour in normal x direction is blocked */
+                if (ny != 0.0 && cell_(idx + sgn(ny) * w_) != CELL_FLUID)
+                    mask_(idx) |= 2; /* Neighbour in normal y direction is blocked */
+            }
+        }
+    }
+
+   /* Solve for value at index idx using values of neighbours in normal x/y
+     * direction. The value is computed such that the directional derivative
+     * along distance field normal is 0.
+     */
+    double extrapolateNormal(int idx) {
+        double nx = normalX_(idx);
+        double ny = normalY_(idx);
+        
+        double srcX = (*src_)(idx + sgn(nx));
+        double srcY = (*src_)(idx + sgn(ny) * w_);
+        
+        return (fabs(nx)*srcX + fabs(ny)*srcY)/(fabs(nx) + fabs(ny));
+    }
+    
+    /* Given that a neighbour in upstream direction specified by mask (1=x, 2=y)
+     * now has been solved for, update the mask appropriately and, if this cell
+     * can now be computed, add it to the queue of ready cells
+     */
+    void freeNeighbour(int idx, stack<int> &border, int mask) {
+        mask_(idx) &= ~mask;
+        if (cell_(idx) != CELL_FLUID && mask_(idx) == 0)
+            border.push(idx);
+    }
+    
+    void extrapolate() {
+        fillSolidMask();
+
+        /* Queue of cells which can be computed */
+        stack<int> border;
+        /* Initialize queue by finding all solid cells with mask=0 (ready for
+         * extrapolation)
+         */
+        for (int y = 1; y < h_ - 1; y++) {
+            for (int x = 1; x < w_ - 1; x++) {
+                int idx = x + y * w_;
+
+                if (cell_(idx) != CELL_FLUID && mask_(idx) == 0)
+                    border.push(idx);
+            }
+        }
+
+        while (!border.empty()) {
+            int idx = border.top();
+            border.pop();
+
+            /* Solve for value in cell */
+            (*src_)(idx) = extrapolateNormal(idx);
+
+            /* Notify adjacent cells that this cell has been computed and can
+             * be used as an upstream value
+             */
+            if (normalX_(idx - 1) > 0.0)
+                freeNeighbour(idx -  1, border, 1);
+            if (normalX_(idx + 1) < 0.0)
+                freeNeighbour(idx +  1, border, 1);
+            if (normalY_(idx - w_) > 0.0)
+                freeNeighbour(idx - w_, border, 2);
+            if (normalY_(idx + w_) < 0.0)
+                freeNeighbour(idx + w_, border, 2);
         }
     }
 };
@@ -185,13 +307,20 @@ class FluidSolver {
     VectorXd Aplusi_;
     VectorXd Aplusj_;
     
+    /* List of solid bodies to consider in the simulation */
+    vector<const SolidBody *> bodies_;
     
     /* Builds the pressure right hand side as the negative divergence */
     void buildResidual() {
+        auto &cell = d_->cell();
+
         for (int y = 0, idx = 0; y < h_; y++) {
             for (int x = 0; x < w_; x++, idx++) {
-                r_(idx) = (u_->at(x + 1, y) - u_->at(x, y) +
-                           v_->at(x, y + 1) - v_->at(x, y)) / hx_ * -1;
+                if (cell(idx) == CELL_FLUID) {
+                    r_(idx) = (u_->at(x + 1, y) - u_->at(x, y) +
+                               v_->at(x, y + 1) - v_->at(x, y)) / hx_ * -1;
+                } else
+                    r_(idx) = 0;
             }
         }
     }
@@ -201,6 +330,7 @@ class FluidSolver {
      */
     void buildA(double dt) {
         double scale = dt / (density_ * hx_ * hx_);
+        auto &cell = d_->cell();
         Adiag_.setZero();
         Aplusi_.setZero();
         Aplusj_.setZero();
@@ -209,32 +339,18 @@ class FluidSolver {
             for (int x = 0; x < w_; x++) {
                 int idx = x + y * w_;
 
-                int n = 4;
-                if (x == 0) {
-                    n--;
-                }
-                if (x == w_ - 1) {
-                    n--;
-                }
-                if (y == 0) {
-                    n--;
-                }
-                if (y == h_ - 1) {
-                    n--;
-                }
+                if (cell(idx) != CELL_FLUID)
+                    continue;
 
-                Adiag_(idx) = n * scale;
-
-                if (x < w_ - 1) {
-                    Aplusi_(idx)  = -scale;
-                } else {
-                    Aplusi_(idx) = 0.0;
+                if (x < w_ - 1 && cell(idx + 1) == CELL_FLUID) {
+                    Adiag_ (idx    ) +=  scale;
+                    Adiag_ (idx + 1) +=  scale;
+                    Aplusi_(idx    )  = -scale;
                 }
-
-                if (y < h_ - 1) {
-                    Aplusj_(idx)  = -scale;
-                } else {
-                    Aplusj_(idx) = 0.0;
+                if (y < h_ - 1 && cell(idx + w_) == CELL_FLUID) {
+                    Adiag_ (idx     ) +=  scale;
+                    Adiag_ (idx + w_) +=  scale;
+                    Aplusj_(idx     )  = -scale;
                 }
             }
         }
@@ -244,19 +360,24 @@ class FluidSolver {
     void buildPrecon() {
         const double tau = 0.97;
         const double sigma = 0.25;
+        auto &cell = d_->cell();
 
         for (int y = 0; y < h_; y++) {
             for (int x = 0; x < w_; x++) {
                 int idx = x + y * w_;
+
+                if (cell(idx) != CELL_FLUID)
+                    continue;
+
                 double e = Adiag_(idx);
 
-                if (x > 0) {
+                if (x > 0 && cell(idx - 1) == CELL_FLUID) {
                     double px = Aplusi_(idx - 1) * precon_(idx - 1);
                     double py = Aplusj_(idx - 1) * precon_(idx - 1);
                     e = e - (px * px + tau * px * py);
                 }
 
-                if (y > 0) {
+                if (y > 0 && cell(idx - w_) == CELL_FLUID) {
                     double px = Aplusi_(idx - w_) * precon_(idx - w_);
                     double py = Aplusj_(idx - w_) * precon_(idx - w_);
                     e = e - (py * py + tau * px * py);
@@ -273,14 +394,20 @@ class FluidSolver {
     
     /* Apply preconditioner to vector `a' and store it in `dst' */
     void applyPrecon(VectorXd &dst, VectorXd &a) {
+        auto &cell = d_->cell();
+
         for (int y = 0; y < h_; y++) {
             for (int x = 0; x < w_; x++) {
                 int idx = x + y * w_;
+
+                if (cell(idx) != CELL_FLUID)
+                    continue;
+
                 double t = a(idx);
 
-                if (x > 0)
+                if (x > 0 && cell(idx - 1) == CELL_FLUID)
                     t -= Aplusi_(idx -  1) * precon_(idx -  1) * dst(idx -  1);
-                if (y > 0)
+                if (y > 0 && cell(idx - w_) == CELL_FLUID)
                     t -= Aplusj_(idx - w_) * precon_(idx - w_) * dst(idx - w_);
 
                 dst(idx) = t * precon_(idx);
@@ -291,11 +418,14 @@ class FluidSolver {
             for (int x = w_ - 1; x >= 0; x--) {
                 int idx = x + y * w_;
 
+                if (cell(idx) != CELL_FLUID)
+                    continue;
+
                 double t = dst(idx);
 
-                if (x < w_ - 1)
+                if (x < w_ - 1 && cell(idx + 1) == CELL_FLUID)
                     t -= Aplusi_(idx) * precon_(idx) * dst(idx +  1);
-                if (y < h_ - 1)
+                if (y < h_ - 1 && cell(idx + w_) == CELL_FLUID)
                     t -= Aplusj_(idx) * precon_(idx) * dst(idx + w_);
 
                 dst(idx) = t * precon_(idx);
@@ -392,13 +522,44 @@ class FluidSolver {
     /* Applies the computed pressure to the velocity field */
     void applyPressure(double dt) {
         double scale = dt / (density_ * hx_);
+        auto &cell = d_->cell();
         
         for (int y = 0; y < h_; y++) {
             for (int x = 0; x < w_; x++) {
+                int idx = x + y * w_;
+
+                if (cell(idx) != CELL_FLUID)
+                    continue;
                 u_->at(x,     y    ) -= scale * p_(x + y * w_);
                 u_->at(x + 1, y    ) += scale * p_(x + y * w_);
                 v_->at(x,     y    ) -= scale * p_(x + y * w_);
                 v_->at(x,     y + 1) += scale * p_(x + y * w_);
+            }
+        }
+        
+        for (int y = 0; y < h_; y++)
+            u_->at(0, y) = u_->at(w_, y) = 0.0;
+
+        for (int x = 0; x < w_; x++)
+            v_->at(x, 0) = v_->at(x, h_) = 0.0;
+    }
+
+    
+    /* Sets all velocity cells bordering solid cells to the solid velocity */
+    void setBoundaryCondition() {
+        auto &cell = d_->cell();
+        auto &body = d_->body();
+        
+        for (int y = 0, idx = 0; y < h_; y++) {
+            for (int x = 0; x < w_; x++, idx++) {
+                if (cell(idx) == CELL_SOLID) {
+                    const SolidBody &b = *bodies_[body(idx)];
+                    
+                    u_->at(x, y) = b.velocityX(x*hx_, (y + 0.5)*hx_);
+                    v_->at(x, y) = b.velocityY((x + 0.5)*hx_, y*hx_);
+                    u_->at(x + 1, y) = b.velocityX((x + 1.0)*hx_, (y + 0.5)*hx_);
+                    v_->at(x, y + 1) = b.velocityY((x + 0.5)*hx_, (y + 1.0)*hx_);
+                }
             }
         }
         
@@ -441,15 +602,12 @@ public:
     }
     
     void update(double dt, int maxIter, double maxError, BodyForces &f) {
-        d_->advect(dt, *u_, *v_);
-        u_->advect(dt, *u_, *v_);
-        v_->advect(dt, *u_, *v_);
+
+        d_->fillSolidFields(bodies_);
+        u_->fillSolidFields(bodies_);
+        v_->fillSolidFields(bodies_);
         
-        /* Make effect of advection visible, since it's not an in-place operation */
-        d_->flip();
-        u_->flip();
-        v_->flip();
-        // std::cout << "1 iter done...\n";
+        setBoundaryCondition();
 
         for (int y = 1; y < h_ - 1; y++) {
             for (int x = 0; x < w_; x++) {
@@ -461,6 +619,23 @@ public:
         project(maxIter, dt, maxError);
         // std::cout << "p_ = " << p_ <<"\n";
         applyPressure(dt);
+
+        
+        d_->extrapolate();
+        u_->extrapolate();
+        v_->extrapolate();
+
+        setBoundaryCondition();
+
+        d_->advect(dt, *u_, *v_, bodies_);
+        u_->advect(dt, *u_, *v_, bodies_);
+        v_->advect(dt, *u_, *v_, bodies_);
+        
+        /* Make effect of advection visible, since it's not an in-place operation */
+        d_->flip();
+        u_->flip();
+        v_->flip();
+        // std::cout << "1 iter done...\n";
     }
     
     /* Set density and x/y velocity in given rectangle to d/u/v, respectively */
@@ -471,7 +646,14 @@ public:
     }
     
     double atImage(int x, int y) {
+        auto &cell = d_->cell();
+        if (cell(x + y * w_) == CELL_SOLID)
+            return 1.0;
         return d_->src()[y * w_ + x];
+    }
+
+    void addBody(const SolidBody *b) {
+        bodies_.push_back(b);
     }
 };
 

@@ -23,6 +23,8 @@ FluidHook::FluidHook() : PhysicsHook()
     gravityG = -9.8;
 
     solver = nullptr;
+
+    theta = 0;
 }
 
 #define SWAP(a, b) \
@@ -47,6 +49,10 @@ void FluidHook::drawGUI(igl::opengl::glfw::imgui::ImGuiMenu &menu)
     {
         ImGui::Checkbox("Gravity Enabled", &gravityEnabled);
         ImGui::InputFloat("Gravity G", &gravityG, 0, 0, 3);        
+    }
+    if (ImGui::CollapsingHeader("Solid Body", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::InputFloat("theta (in pi)", &theta, 0, 0, 3);        
     }    
 }
 
@@ -216,6 +222,7 @@ void FluidHook::initSimulation()
     if (solver != nullptr)
         delete solver;
     solver = new FluidSolver(faces_x, faces_y, density, width);
+    solver->addBody(new SolidBox(0.5, 0.6, 0.7, 0.1, M_PI*0.25, 0.0, 0.0, 0.0));
     pflows.clear();
 
     // char ch;
