@@ -9,13 +9,13 @@ FluidHook::FluidHook() : PhysicsHook()
     clickedVertex = -1;
     released = false;
 
-    dt = 1e-3;
+    dt = 1e-2;
     density = 1.0;
     PCGIters = 20;
     PCGTolerence = 1.0e-8;
 
     L = 3.0;
-    N = 100;
+    N = 300;
 
     persistInflow = false;
 
@@ -24,7 +24,8 @@ FluidHook::FluidHook() : PhysicsHook()
 
     solver = nullptr;
 
-    theta = 0;
+    addBox = addSphere = false;
+    w = theta = 0;
 }
 
 #define SWAP(a, b) \
@@ -52,7 +53,10 @@ void FluidHook::drawGUI(igl::opengl::glfw::imgui::ImGuiMenu &menu)
     }
     if (ImGui::CollapsingHeader("Solid Body", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        ImGui::InputFloat("theta (in pi)", &theta, 0, 0, 3);        
+        ImGui::Checkbox("Add Box", &addBox);
+        ImGui::Checkbox("Add Sphere", &addSphere);
+        ImGui::InputFloat("theta (in pi)", &theta, 0, 0, 3); 
+        // ImGui::InputFloat("omega (in pi)", &w, 0, 0, 3);        
     }    
 }
 
@@ -222,7 +226,7 @@ void FluidHook::initSimulation()
     if (solver != nullptr)
         delete solver;
     solver = new FluidSolver(faces_x, faces_y, density, width);
-    solver->addBody(new SolidBox(0.5, 0.6, 0.7, 0.1, M_PI*0.25, 0.0, 0.0, 0.0));
+    // solver->addBody(new SolidBox(0.5, 0.6, 0.7, 0.1, M_PI*0.25, 0.0, 0.0, 0.0));
     pflows.clear();
 
     // char ch;
@@ -243,7 +247,14 @@ bool FluidHook::simulateOneStep()
         f.g = 0;
     }
 
-    if (clickedVertex > 0 && released) {
+    clickMode = CM_ADDINFLOW;
+    if (addBox && ~addSphere) {
+        clickMode = CM_ADDBOX;
+    } else if (addSphere && ~addBox) {
+        clickMode = CM_ADDSPHERE;
+    }
+
+    if (clickedVertex > 0 && released && clickMode == CM_ADDINFLOW) {
         Vector2i start = pos2grid(clickedPos);
         Vector2i stop = pos2grid(curPos);
         int x_min = std::min(start(0), stop(0));
@@ -268,6 +279,34 @@ bool FluidHook::simulateOneStep()
         } else {
             solver->addInflow(x_min * width, y_min * width, x_extent * width, y_extent * width, density, 0.0, v);
         }
+    } else if (clickedVertex > 0 && released && clickMode == CM_ADDBOX) {
+        Vector2i start = pos2grid(clickedPos);
+        Vector2i stop = pos2grid(curPos);
+        int x_min = std::min(start(0), stop(0));
+        int x_max = std::max(start(0), stop(0));
+        int y_min = std::min(start(1), stop(1));
+        int y_max = std::max(start(1), stop(1));
+        int x_extent = x_max - x_min + 1;
+        int y_extent = y_max - y_min + 1;
+        std::cout << "add box    for [" << x_min << "-" << x_max << "]["
+                                        << y_min << "-" << y_max << "]\n";
+        clickedVertex = -1;
+        released = false;
+        solver->addBody(new SolidBox((x_min + x_max) * width / 2, (y_min + y_max) * width / 2, x_extent * width, y_extent * width, M_PI * theta, 0.0, 0.0, w * M_PI));
+    } else if (clickedVertex > 0 && released && clickMode == CM_ADDSPHERE) {
+        Vector2i start = pos2grid(clickedPos);
+        Vector2i stop = pos2grid(curPos);
+        int x_min = std::min(start(0), stop(0));
+        int x_max = std::max(start(0), stop(0));
+        int y_min = std::min(start(1), stop(1));
+        int y_max = std::max(start(1), stop(1));
+        int x_extent = x_max - x_min + 1;
+        int y_extent = y_max - y_min + 1;
+        std::cout << "add sphere for [" << x_min << "-" << x_max << "]["
+                                        << y_min << "-" << y_max << "]\n";
+        clickedVertex = -1;
+        released = false;
+        solver->addBody(new SolidSphere((x_min + x_max) * width / 2, (y_min + y_max) * width / 2, x_extent * width, M_PI * theta, 0.0, 0.0, w * M_PI));
     }
 
     for (auto f : pflows) {

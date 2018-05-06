@@ -308,6 +308,7 @@ class FluidSolver {
     VectorXd Aplusj_;
     
     /* List of solid bodies to consider in the simulation */
+    bool dirty;
     vector<SolidBody *> bodies_;
     
     /* Builds the pressure right hand side as the negative divergence */
@@ -593,6 +594,8 @@ public:
         Aplusi_.setZero();
         Aplusj_.resize(w_ * h_);
         Aplusj_.setZero();
+
+        dirty = true;
     }
     
     ~FluidSolver() {
@@ -602,6 +605,8 @@ public:
     }
     
     void update(double dt, int maxIter, double maxError, BodyForces &f) {
+
+        if (dirty) {
 
         d_->fillSolidFields(bodies_);
         u_->fillSolidFields(bodies_);
@@ -614,7 +619,12 @@ public:
         u_->extrapolate();
         v_->extrapolate();
 
+            dirty = false;
+
+        }
+
         setBoundaryCondition();
+
 
         d_->advect(dt, *u_, *v_, bodies_);
         u_->advect(dt, *u_, *v_, bodies_);
@@ -636,6 +646,10 @@ public:
         project(maxIter, dt, maxError);
         // std::cout << "p_ = " << p_ <<"\n";
         applyPressure(dt);
+
+        // for (auto b : bodies_) {
+        //     b->update(dt);
+        // }
     }
     
     /* Set density and x/y velocity in given rectangle to d/u/v, respectively */
@@ -654,6 +668,7 @@ public:
 
     void addBody(SolidBody *b) {
         bodies_.push_back(b);
+        dirty = true;
     }
 };
 

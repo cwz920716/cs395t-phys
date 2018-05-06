@@ -23,6 +23,8 @@ struct Inflow {
     double density, u, v;
 };
 
+enum ClickMode {CM_ADDINFLOW, CM_ADDBOX, CM_ADDSPHERE};
+
 class FluidHook : public PhysicsHook
 {
 public:
@@ -86,7 +88,9 @@ private:
     bool gravityEnabled;
     float gravityG;
 
-    float theta;
+    ClickMode clickMode;
+    bool addBox, addSphere;
+    float theta, w;
 
     std::mutex mouseMutex;
     std::vector<MouseEvent> mouseEvents;
