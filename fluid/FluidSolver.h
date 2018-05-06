@@ -608,20 +608,20 @@ public:
 
         if (dirty) {
 
-        d_->fillSolidFields(bodies_);
-        u_->fillSolidFields(bodies_);
-        v_->fillSolidFields(bodies_);
-        
-        setBoundaryCondition();
+            d_->fillSolidFields(bodies_);
+            u_->fillSolidFields(bodies_);
+            v_->fillSolidFields(bodies_);
+            
+            setBoundaryCondition();
+
+            dirty = false;
+
+        }
 
         
         d_->extrapolate();
         u_->extrapolate();
         v_->extrapolate();
-
-            dirty = false;
-
-        }
 
         setBoundaryCondition();
 

@@ -9,13 +9,13 @@ FluidHook::FluidHook() : PhysicsHook()
     clickedVertex = -1;
     released = false;
 
-    dt = 1e-2;
+    dt = 1e-3;
     density = 1.0;
     PCGIters = 20;
     PCGTolerence = 1.0e-8;
 
     L = 3.0;
-    N = 300;
+    N = 100;
 
     persistInflow = false;
 
